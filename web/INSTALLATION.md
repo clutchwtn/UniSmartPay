@@ -63,9 +63,6 @@ deployment.
 
 ## ESP32 network setup
 
-The ESP32 must reach Apache over the local network. Its URL must use the
-computer's LAN address, for example:
-
 When the ESP32 accesses Docker from another device, use the computer's LAN IP
 and the published application port:
 

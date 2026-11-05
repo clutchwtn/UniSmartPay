@@ -599,7 +599,7 @@ void processPayment(String cardUID) {
         float amount = claimDoc["order"]["montant"] | 0;
 
         if (orderId <= 0 || amount <= 0) {
-            Serial.println("❌ Invalid order data.");
+            Serial.println("Invalid order data.");
             logMessage("ERROR", "Commande invalide.");
             sendLogToServer(terminalId, "ERROR", "Commande invalide.", cardUID);
             failedPayment();
@@ -761,7 +761,7 @@ void blinkError(int times) {
 // WIFI FUNCTIONS
 // ============================================
 void connectWiFi() {
-    Serial.println("\n📡 Connecting to WiFi...");
+    Serial.println("\nConnecting to WiFi...");
     WiFi.mode(WIFI_STA);
     WiFi.begin(SSID, PASSWORD);
     
@@ -773,11 +773,11 @@ void connectWiFi() {
     }
     
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("\n✅ WiFi connected!");
+        Serial.println("\nWiFi connected.");
         Serial.print("IP Address: ");
         Serial.println(WiFi.localIP());
     } else {
-        Serial.println("\n❌ WiFi connection failed!");
+        Serial.println("\nWiFi connection failed.");
     }
 }
 

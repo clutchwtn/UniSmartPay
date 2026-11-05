@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * 🚀 RFID Reader Server - Node.js + WebSocket
- * Alternative moderne à Web Serial API
+ * RFID Reader Server - Node.js and WebSocket
+ * Alternative to the Web Serial API
  * 
  * Installation:
  * npm install express socket.io serialport
@@ -75,14 +75,14 @@ app.get('/', (req, res) => {
         </head>
         <body>
             <div class="container">
-                <h1>📡 RFID Reader Server</h1>
+                <h1>RFID Reader Server</h1>
                 <div class="status">
                     <div class="status-dot" id="status-dot"></div>
                     <span id="status-text">Connexion...</span>
                 </div>
                 
                 <div class="info-box">
-                    <strong>🔹 Serveur WebSocket Actif</strong><br>
+                    <strong>Serveur WebSocket actif</strong><br>
                     Port Serial: En attente de config<br>
                     Baud Rate: 115200<br>
                     Format: Chaque ligne = 1 UID
@@ -90,7 +90,7 @@ app.get('/', (req, res) => {
                 
                 <div id="uid-display" style="display: none;">
                     <div class="uid-display">
-                        <strong>🎫 UID Détecté:</strong><br>
+                        <strong>UID détecté:</strong><br>
                         <div class="uid-value" id="uid-value">000000</div>
                     </div>
                 </div>
@@ -101,12 +101,12 @@ app.get('/', (req, res) => {
                 </div>
                 
                 <div>
-                    <button class="btn-primary" onclick="connectSerial()">🔌 Connecter Port Sériel</button>
+                    <button class="btn-primary" onclick="connectSerial()">Connecter le port série</button>
                     <button class="btn-danger" onclick="disconnect()" disabled id="btn-disconnect">Déconnecter</button>
                 </div>
                 
                 <div class="connections">
-                    👥 Clients connectés: <span id="client-count">0</span>
+                    Clients connectés: <span id="client-count">0</span>
                 </div>
             </div>
             
@@ -137,23 +137,23 @@ app.get('/', (req, res) => {
                 }
                 
                 socket.on('connect', () => {
-                    addLog('✅ Connecté au serveur', 'success');
+                    addLog('Connecté au serveur', 'success');
                     status_dot.classList.add('connected');
-                    status_text.textContent = 'Connecté ✅';
+                    status_text.textContent = 'Connecté';
                 });
                 
                 socket.on('disconnect', () => {
-                    addLog('❌ Disconnecté', 'error');
+                    addLog('Déconnecté', 'error');
                     status_dot.classList.remove('connected');
                     status_text.textContent = 'Déconnecté';
                 });
                 
                 socket.on('serial:connected', (data) => {
-                    addLog(\`✅ Port sériel connecté: \${data.port}\`, 'success');
+                    addLog(\`Port série connecté: \${data.port}\`, 'success');
                 });
                 
                 socket.on('serial:disconnected', (data) => {
-                    addLog('🔌 Port sériel déconnecté', 'warning');
+                    addLog('Port série déconnecté', 'warning');
                 });
                 
                 socket.on('serial:data', (data) => {
@@ -162,12 +162,12 @@ app.get('/', (req, res) => {
                         currentUID = uid;
                         uid_value.textContent = uid;
                         uid_display.style.display = 'block';
-                        addLog(\`📡 UID reçu: \${uid}\`, 'success');
+                        addLog(\`UID reçu: \${uid}\`, 'success');
                     }
                 });
                 
                 socket.on('serial:error', (error) => {
-                    addLog(\`❌ Erreur: \${error}\`, 'error');
+                    addLog(\`Erreur: \${error}\`, 'error');
                 });
                 
                 socket.on('clients:count', (count) => {
@@ -300,15 +300,15 @@ function sendToAPI(uid) {
 // ===== Démarrage =====
 server.listen(PORT, () => {
     console.log('\\n=================================');
-    console.log('🚀 RFID Reader Server');
+    console.log('RFID Reader Server');
     console.log('=================================');
-    console.log(`📍 Serveur: http://localhost:${PORT}`);
-    console.log(`🔧 Port sériel: À configurer via interface`);
-    console.log(`👥 API PHP: http://localhost/UniSmartPay/web/api/terminal/log.php`);
-    console.log('\\n📋 Accès:');
+    console.log(`Serveur: http://localhost:${PORT}`);
+    console.log(`Port série: à configurer via l'interface`);
+    console.log(`API PHP: http://localhost/UniSmartPay/web/api/terminal/log.php`);
+    console.log('\\nAccès:');
     console.log(`  - Web UI: http://localhost:${PORT}`);
     console.log(`  - Status: http://localhost:${PORT}/api/status`);
-    console.log('\\n💡 Prêt à recevoir les UIDs des lecteurs RFID!\\n');
+    console.log('\\nPrêt à recevoir les UID des lecteurs RFID.\\n');
 });
 
 process.on('SIGINT', () => {

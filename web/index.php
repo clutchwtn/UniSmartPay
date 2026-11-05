@@ -13,7 +13,7 @@ require_once __DIR__ . '/includes/header.php';
 <div class="container">
 
   <div style="max-width:580px; margin-bottom:32px;">
-    <h1 class="section-title">Bienvenue 👋</h1>
+    <h1 class="section-title">Bienvenue</h1>
     <p class="section-sub">Système de paiement universitaire intelligent — restaurant & buvette.</p>
   </div>
 

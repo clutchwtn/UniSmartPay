@@ -32,19 +32,6 @@ if ($orderId <= 0 || $terminalId <= 0 || $uid === '') {
     exit();
 }
 
-function uid_candidates(string $uid): array {
-    $candidates = [];
-    $uid = strtoupper($uid);
-    $candidates[] = $uid;
-
-    if (strpos($uid, ':') === false && preg_match('/^[0-9A-F]+$/', $uid) && (strlen($uid) % 2 === 0)) {
-        $pairs = str_split($uid, 2);
-        $candidates[] = implode(':', $pairs);
-    }
-
-    return array_values(array_unique($candidates));
-}
-
 try {
     $pdo = db();
     $pdo->beginTransaction();

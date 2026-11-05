@@ -1,5 +1,5 @@
 <?php
-// UniSmart Pay - Fonctions Utilitaires
+// UniSmart Pay utility functions
 
 declare(strict_types=1);
 
@@ -16,8 +16,19 @@ function require_csrf_token(string $token): void {
     $sessionToken = $_SESSION[CSRF_SESSION_KEY] ?? '';
     if (!$token || !$sessionToken || !hash_equals($sessionToken, $token)) {
         http_response_code(403);
-        exit('CSRF token invalide');
+        exit('Invalid CSRF token');
     }
+}
+
+function uid_candidates(string $uid): array {
+    $uid = strtoupper(trim($uid));
+    $candidates = [$uid];
+
+    if (strpos($uid, ':') === false && preg_match('/^[0-9A-F]+$/', $uid) && strlen($uid) % 2 === 0) {
+        $candidates[] = implode(':', str_split($uid, 2));
+    }
+
+    return array_values(array_unique($candidates));
 }
 
 function is_hex_sha256(string $hash): bool {
@@ -27,12 +38,12 @@ function is_hex_sha256(string $hash): bool {
 function verify_password(string $plainPassword, string $storedHash): bool {
     $storedHash = trim($storedHash);
 
-    // If it's a PHP password_hash() (bcrypt/argon2)
+    // PHP password_hash() output (bcrypt or Argon2).
     if (str_starts_with($storedHash, '$2y$') || str_starts_with($storedHash, '$argon2')) {
         return password_verify($plainPassword, $storedHash);
     }
 
-    // If it's a SHA256 hex (as inserted by SHA2(...,256) in MySQL)
+    // SHA-256 hex output from the database seed data.
     if (is_hex_sha256($storedHash)) {
         $computed = hash('sha256', $plainPassword);
         return hash_equals(strtolower($storedHash), strtolower($computed));
@@ -87,7 +98,7 @@ function log_security(?int $idUser, string $typeUser, string $action, string $de
             ':statut' => $statut,
         ]);
     } catch (Throwable $e) {
-        // Avoid breaking the app for logging failures.
+        // Logging failures must not break the request.
         error_log('log_security error: ' . $e->getMessage());
     }
 }

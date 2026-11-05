@@ -30,19 +30,6 @@ if ($uid === '') {
     exit();
 }
 
-function uid_candidates(string $uid): array {
-    $candidates = [];
-    $uid = strtoupper($uid);
-    $candidates[] = $uid;
-
-    // If UID is like AABBCCDD, also try AA:BB:CC:DD
-    if (strpos($uid, ':') === false && preg_match('/^[0-9A-F]+$/', $uid) && (strlen($uid) % 2 === 0)) {
-        $candidates[] = implode(':', str_split($uid, 2));
-    }
-
-    return array_values(array_unique($candidates));
-}
-
 try {
     $pdo = db();
 

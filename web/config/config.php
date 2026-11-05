@@ -1,5 +1,5 @@
 <?php
-// UniSmart Pay - Configuration Globale
+// UniSmart Pay configuration
 
 declare(strict_types=1);
 
@@ -8,14 +8,14 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// App
+// Application
 define('APP_NAME', 'UniSmart Pay');
-define('APP_ENV', 'dev'); // dev|prod
+define('APP_ENV', getenv('UNISMARTPAY_APP_ENV') ?: 'dev');
 
 // Security
 define('SESSION_KEY', 'unismart_pay_2026');
 define('CSRF_SESSION_KEY', 'csrf_token');
-define('SESSION_DURATION', 3600); // 1 heure
+define('SESSION_DURATION', 3600); // One hour
 
 // Database
 define('DB_HOST', getenv('UNISMARTPAY_DB_HOST') ?: '127.0.0.1');
@@ -28,5 +28,5 @@ define('DB_CHARSET', 'utf8mb4');
 // URLs
 define('BASE_URL', '/UniSmartPay/web');
 
-// Timezone
+// Time zone
 date_default_timezone_set('Africa/Tunis');

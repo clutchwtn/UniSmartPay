@@ -70,12 +70,13 @@ Install via Sketch > Include Library > Manage Libraries:
 
 ### 3. Configure WiFi Credentials
 
-Edit in `unismart_pay_terminal.ino`:
+Edit these constants in `unismart_pay_terminal.ino`:
 
 ```cpp
-const char* SSID = "YOUR_SSID";              // ← UPDATE
-const char* PASSWORD = "YOUR_PASSWORD";      // ← UPDATE
-const char* SERVER_URL = "http://192.168.1.100/api/payment"; // ← UPDATE IP
+const char* SSID = "YOUR_WIFI_SSID";
+const char* PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* SERVER_URL =
+  "http://YOUR_SERVER_IP/UniSmartPay/web/api/payment.php";
 ```
 
 ---
@@ -86,18 +87,24 @@ const char* SERVER_URL = "http://192.168.1.100/api/payment"; // ← UPDATE IP
 
 ```cpp
 // PINS (Already configured for your setup)
-#define SS_PIN    19   // SDA
-#define RST_PIN   5    // RST
+#define SCK_PIN   18   // SCK
+#define MOSI_PIN  23   // MOSI
+#define MISO_PIN  19   // MISO
+#define SS_PIN    5    // SDA/CS
+#define RST_PIN   4    // RST
 #define LED_GREEN 21   // Green LED pin
-#define LED_RED   16   // Red LED pin
+#define LED_RED   22   // Red LED pin
 
 // WiFi
 SSID = "YourNetworkName"
 PASSWORD = "YourPassword"
 
 // Server
-SERVER_URL = "http://YOUR_SERVER_IP/api/payment"
+SERVER_URL = "http://YOUR_SERVER_IP/UniSmartPay/web/api/payment.php"
 ```
+
+Use the computer's LAN IP for `YOUR_SERVER_IP`; do not use `localhost`, because
+the ESP32 resolves that name to itself. Do not commit real Wi-Fi credentials.
 
 ---
 

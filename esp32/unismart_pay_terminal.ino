@@ -54,7 +54,11 @@ void logMessage(const String& type, const String& message) {
 
 String apiUrlFromServerUrl(const char* serverUrl, const char* endpoint) {
     String base(serverUrl);
-    base.replace("/web/api/payment.php", String("/web/api/") + endpoint);
+    const String paymentPath = "/web/api/payment.php";
+    const int pathStart = base.indexOf(paymentPath);
+    if (pathStart >= 0) {
+        base = base.substring(0, pathStart) + "/web/api/" + endpoint;
+    }
     return base;
 }
 
@@ -93,11 +97,11 @@ inline void setLed(int pin, bool on) {
 // ============================================
 // WIFI CONFIGURATION
 // ============================================
-const char* SSID = "Redmi";           // Remplacer
-const char* PASSWORD = "01234567";   // Remplacer
+const char* SSID = "YOUR_WIFI_SSID";
+const char* PASSWORD = "YOUR_WIFI_PASSWORD";
 // IMPORTANT: si le serveur est sur XAMPP (htdocs/UniSmartPay), l'URL est souvent:
 //   http://<IP_DU_PC>/UniSmartPay/web/api/payment.php
-const char* SERVER_URL = "http://10.169.8.245/UniSmartPay/web/api/payment.php"; // Adapter
+const char* SERVER_URL = "http://YOUR_SERVER_IP/UniSmartPay/web/api/payment.php";
 
 // ============================================
 // TERMINAL MODE (RESTO / BUVETTE)
@@ -117,6 +121,9 @@ unsigned long g_modeLastFetchMs = 0;
 
 const float AMOUNT_RESTO = 3.50;
 const float AMOUNT_BUVETTE = 5.50;
+const unsigned long CARD_COOLDOWN_MS = 10000;
+String g_lastProcessedUid = "";
+unsigned long g_lastProcessedMs = 0;
 
 bool sendLogToServer(int terminalId, const String& type, const String& message, const String& uidCard = "", float amount = -1, int orderId = 0) {
     if (WiFi.status() != WL_CONNECTED) return false;
@@ -461,6 +468,16 @@ void loop() {
     cardUID.toUpperCase();
     cardUIDColon.toUpperCase();
     logMessage("RFID", String("Carte détectée : ") + cardUIDColon);
+
+    const unsigned long now = millis();
+    if (cardUID == g_lastProcessedUid && now - g_lastProcessedMs < CARD_COOLDOWN_MS) {
+        logMessage("INFO", "Carte ignoree pendant le delai anti-double scan");
+        rfid.PICC_HaltA();
+        rfid.PCD_StopCrypto1();
+        return;
+    }
+    g_lastProcessedUid = cardUID;
+    g_lastProcessedMs = now;
     
     // Process payment
     processPayment(cardUID);
@@ -523,8 +540,7 @@ void processPayment(String cardUID) {
 
     if (g_mode == MODE_BUVETTE) {
         // 1) Claim pending order for this terminal
-        String claimUrl = String(SERVER_URL);
-        claimUrl.replace("/web/api/payment.php", "/web/api/terminal_order_claim.php");
+        String claimUrl = apiUrlFromServerUrl(SERVER_URL, "terminal_order_claim.php");
         claimUrl += "?terminal_id=" + String(terminalId);
 
         logMessage("PAIEMENT", "Recherche commande en attente...");
@@ -602,8 +618,7 @@ void processPayment(String cardUID) {
         }
 
         // 2) Pay that order with card UID
-        String payUrl = String(SERVER_URL);
-        payUrl.replace("/web/api/payment.php", "/web/api/terminal_order_pay.php");
+        String payUrl = apiUrlFromServerUrl(SERVER_URL, "terminal_order_pay.php");
 
         DynamicJsonDocument doc(384);
         doc["order_id"] = orderId;

@@ -1,95 +1,79 @@
-# UniSmart Pay - Installation web (XAMPP)
+# Web application installation
 
-## Prérequis
+## Requirements
 
-- XAMPP avec Apache et MySQL
-- PHP 8.x recommandé
-- Navigateur récent (Chrome/Edge recommandé pour caméra et Web Serial)
+- XAMPP with Apache and MySQL.
+- PHP 8.x recommended.
+- A current desktop browser.
 
-## Installation
+Chrome or Edge is recommended for barcode camera access and Web Serial.
 
-1. Copier le projet dans `C:\xampp\htdocs\UniSmartPay`.
-2. Vérifier `web/config/config.php`:
-   - `DB_NAME = unismart_pay`
-   - `DB_USER = root`
-   - `DB_PASS = ''` (configuration XAMPP courante)
-3. Importer `database/unismart_pay_schema.sql` avec phpMyAdmin.
-4. Démarrer **Apache** et **MySQL** dans le panneau XAMPP.
-5. Ouvrir `http://localhost/UniSmartPay/web/`.
+## Install locally
 
-Si Apache utilise un port différent de 80, adapter les URLs de l'application
-et du terminal ESP32.
+1. Copy the repository to `C:\xampp\htdocs\UniSmartPay`.
+2. Check database values in `web/config/config.php`.
+3. Import `database/unismart_pay_schema.sql`.
+4. Start Apache and MySQL in XAMPP.
+5. Open `http://localhost/UniSmartPay/web/`.
 
-## URLs principales
+If Apache uses a port other than 80, include that port in every URL.
 
-- Accueil: `http://localhost/UniSmartPay/web/`
-- Administration: `http://localhost/UniSmartPay/web/admin/login.php`
-- Portail étudiant: `http://localhost/UniSmartPay/web/etudiant/login.php`
+## Main pages
 
-Les comptes créés par le script SQL sont indiqués dans
-[`../DATABASE-SETUP.md`](../DATABASE-SETUP.md). Ils sont destinés au
-développement uniquement; changez-les avant toute utilisation réelle.
+| Page | URL |
+|---|---|
+| Home | `/UniSmartPay/web/` |
+| Administration | `/UniSmartPay/web/admin/login.php` |
+| Student portal | `/UniSmartPay/web/etudiant/login.php` |
+| RESTO terminal | `/UniSmartPay/web/terminal/resto.php` |
+| BUVETTE terminal | `/UniSmartPay/web/terminal/buvette.php` |
 
-## Structure
+The SQL seed credentials are for development only. Change them before
+deployment.
 
-- `web/config/`: configuration et connexion PDO.
-- `web/includes/`: sessions, CSRF, helpers et mise en page.
-- `web/etudiant/`: portail étudiant et paiement buvette.
-- `web/admin/`: administration, étudiants, cartes et terminaux.
-- `web/api/`: recherche produit, checkout et API du terminal RFID.
+## Functional smoke test
 
-## Vérification fonctionnelle
+1. Log in to the administration area.
+2. Confirm that a student, account and active RFID card exist.
+3. Confirm that the card UID matches the UID printed by the ESP32.
+4. Check the student balance.
+5. In RESTO mode, present the card and verify the fixed-price debit.
+6. In BUVETTE mode, create a web order, present the card and verify that the
+   order changes from pending to paid.
+7. Check the terminal logs and transaction history.
 
-1. Se connecter à l'administration.
-2. Vérifier qu'un étudiant possède un compte et un solde.
-3. Assigner un UID RFID à cet étudiant.
-4. En mode BUVETTE, créer une commande depuis la page de terminal.
-5. Présenter la carte au terminal ESP32 et vérifier le statut de la commande.
+## ESP32 network setup
 
-## Terminal RFID
-
-Voir [`../esp32/SETUP_GUIDE.md`](../esp32/SETUP_GUIDE.md). Pour un ESP32 sur le
-réseau local, `SERVER_URL` doit utiliser l'adresse LAN du PC:
+The ESP32 must reach Apache over the local network. Its URL must use the
+computer's LAN address, for example:
 
 ```text
 http://192.168.1.25/UniSmartPay/web/api/payment.php
 ```
 
-L'ESP32 et le PC doivent être sur le même réseau. Apache doit être démarré et
-le pare-feu doit autoriser les connexions vers le serveur HTTP.
+`localhost` works only from the computer itself. If requests time out, check
+Apache, the Windows firewall and whether both devices use the same network.
 
-## Sécurité
+## Security checklist
 
-- Utiliser HTTPS en production.
-- Ne pas conserver les comptes de démonstration.
-- Ne pas placer de mots de passe Wi-Fi dans un dépôt public.
-- Garder la validation serveur et la protection CSRF activées.
-- Restreindre l'accès MySQL et les endpoints du terminal au réseau nécessaire.
+- Remove or change all demo accounts.
+- Use a non-empty database password.
+- Use HTTPS outside local development.
+- Do not commit Wi-Fi credentials or database secrets.
+- Restrict MySQL and terminal API access to trusted networks.
+- Keep server-side validation and CSRF protection enabled.
 
-## Dépannage
+## Troubleshooting
 
-### Erreur de connexion MySQL
+**Database connection error:** verify MySQL is running, the database exists and
+`web/config/config.php` matches the server.
 
-Vérifier que MySQL est démarré, que `web/config/config.php` correspond à votre
-installation et que `unismart_pay` a été importée.
+**RFID card not found:** assign the UID to a student, activate the card and
+check the UID format.
 
-### Carte RFID introuvable
+**Camera unavailable:** use HTTPS or `http://localhost` on a desktop browser.
 
-Vérifier que l'UID est assigné à l'étudiant et que la carte est active. Le
-terminal accepte l'UID hexadécimal compact et sa forme séparée par `:`.
+**Session error:** allow cookies and check PHP's session directory and Apache
+error log.
 
-### Timeout ESP32
-
-Vérifier l'IP LAN dans `SERVER_URL`, le réseau Wi-Fi, Apache et le pare-feu du
-PC. `localhost` ne fonctionne pas depuis l'ESP32.
-
-### Erreur de session
-
-Vérifier que les cookies sont autorisés et que PHP peut écrire dans son
-répertoire de sessions. Consulter les logs Apache/PHP dans XAMPP.
-
-## Documentation associée
-
-- [`../DATABASE-SETUP.md`](../DATABASE-SETUP.md): import et vérification MySQL.
-- [`../esp32/SETUP_GUIDE.md`](../esp32/SETUP_GUIDE.md): montage ESP32.
-- [`../SERIAL_MONITOR.md`](../SERIAL_MONITOR.md): logs et diagnostic.
+See [`../SERIAL_MONITOR.md`](../SERIAL_MONITOR.md) for terminal diagnostics.

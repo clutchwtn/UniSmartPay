@@ -1,57 +1,61 @@
 # UniSmart Pay
 
-UniSmart Pay est une plateforme de paiement universitaire basée sur PHP/PDO et MySQL.
-Elle comprend un portail étudiant, une gestion de buvette et un terminal RFID ESP32
-optionnel.
+UniSmart Pay is a university payment platform built with PHP, PDO and MySQL.
+It includes a student portal, a cafeteria workflow and an optional ESP32 RFID
+payment terminal.
 
-## Fonctionnalités
+## What is included
 
-- Portail étudiant: connexion, solde et historique des opérations.
-- Buvette: scan de codes-barres, panier et paiement transactionnel.
-- Terminal RFID: ESP32 + RC522, paiement RESTO à montant fixe ou paiement d'une
-  commande BUVETTE créée depuis le site.
-- Journalisation des scans, paiements et erreurs dans `code_appareil`.
+- Student login, balance and transaction history.
+- Cafeteria barcode scanning, cart management and checkout.
+- RFID terminal support with an ESP32 and RC522 reader.
+- RESTO mode with a fixed ticket price.
+- BUVETTE mode for paying a web-created pending order.
+- Terminal and payment logs stored in `code_appareil`.
 
-## Démarrage rapide
+## Quick start
 
-Prérequis: XAMPP avec Apache/MySQL, PHP 8.x recommandé, et un navigateur récent.
+Requirements:
 
-1. Copier le projet dans `C:\xampp\htdocs\UniSmartPay`.
-2. Démarrer **Apache** et **MySQL** dans XAMPP.
-3. Importer `database/unismart_pay_schema.sql` avec phpMyAdmin.
-4. Ouvrir `http://localhost/UniSmartPay/web/`.
+- XAMPP with Apache and MySQL.
+- PHP 8.x recommended.
+- A modern browser.
 
-Configuration MySQL par défaut: base `unismart_pay`, utilisateur `root`, mot de
-passe vide. Modifier `web/config/config.php` si votre installation diffère.
+1. Copy the project to `C:\xampp\htdocs\UniSmartPay`.
+2. Start Apache and MySQL in XAMPP.
+3. Import `database/unismart_pay_schema.sql` with phpMyAdmin.
+4. Open `http://localhost/UniSmartPay/web/`.
 
-Les identifiants de démonstration sont documentés dans
-[`DATABASE-SETUP.md`](DATABASE-SETUP.md). Changez-les avant toute utilisation réelle.
+The default database settings are in `web/config/config.php`. The demo
+accounts are documented in [`DATABASE-SETUP.md`](DATABASE-SETUP.md); change
+them before using the application outside development.
 
-## Terminal ESP32
+## ESP32 terminal
 
-Le sketch recommandé est [`esp32/unismart_pay_terminal.ino`](esp32/unismart_pay_terminal.ino).
-Il lit l'UID d'une carte RC522, vérifie la carte, puis appelle le serveur PHP.
-Suivre [`esp32/SETUP_GUIDE.md`](esp32/SETUP_GUIDE.md) pour le câblage, les bibliothèques
-et la configuration réseau.
+Use [`esp32/unismart_pay_terminal.ino`](esp32/unismart_pay_terminal.ino).
+The terminal reads a card UID, checks it through the PHP API, and then performs
+the appropriate payment flow. The computer and ESP32 must be on the same
+network. Configure `SERVER_URL` with the computer's LAN address, never
+`localhost`.
 
-Le PC et l'ESP32 doivent être sur le même réseau. Dans le sketch, `SERVER_URL`
-doit utiliser l'adresse LAN du PC, jamais `localhost`.
+Read [`esp32/SETUP_GUIDE.md`](esp32/SETUP_GUIDE.md) before wiring or uploading.
 
-## API principale
+## Main API routes
 
-| Usage | Endpoint |
+| Purpose | Method and route |
 |---|---|
-| Vérifier une carte | `POST web/api/card_check.php` |
-| Paiement RESTO legacy | `POST web/api/payment.php` |
-| Réserver une commande BUVETTE | `GET web/api/terminal_order_claim.php?terminal_id=1` |
-| Payer une commande BUVETTE | `POST web/api/terminal_order_pay.php` |
-| Lire le mode du terminal | `GET web/api/terminal_mode_get.php?terminal_id=1` |
-| Ajouter un log terminal | `POST web/api/terminal/log.php` |
+| Check a card | `POST /web/api/card_check.php` |
+| RESTO payment | `POST /web/api/payment.php` |
+| Claim a cafeteria order | `GET /web/api/terminal_order_claim.php?terminal_id=1` |
+| Pay a cafeteria order | `POST /web/api/terminal_order_pay.php` |
+| Read terminal mode | `GET /web/api/terminal_mode_get.php?terminal_id=1` |
+| Write a terminal log | `POST /web/api/terminal/log.php` |
 
 ## Documentation
 
-- [`web/INSTALLATION.md`](web/INSTALLATION.md): installation de l'application.
-- [`DATABASE-SETUP.md`](DATABASE-SETUP.md): import et vérification MySQL.
-- [`esp32/SETUP_GUIDE.md`](esp32/SETUP_GUIDE.md): montage et téléversement ESP32.
-- [`SERIAL_MONITOR.md`](SERIAL_MONITOR.md): logs et diagnostic.
-- [`NODE_RFID_SERVER.md`](NODE_RFID_SERVER.md): serveur série Node.js alternatif.
+- [`web/INSTALLATION.md`](web/INSTALLATION.md) - web installation and testing.
+- [`DATABASE-SETUP.md`](DATABASE-SETUP.md) - database import and checks.
+- [`esp32/SETUP_GUIDE.md`](esp32/SETUP_GUIDE.md) - ESP32 wiring and setup.
+- [`SERIAL_MONITOR.md`](SERIAL_MONITOR.md) - logs and serial troubleshooting.
+- [`NODE_RFID_SERVER.md`](NODE_RFID_SERVER.md) - optional Node.js serial bridge.
+- [`ROADMAP.md`](ROADMAP.md) - planned improvements.

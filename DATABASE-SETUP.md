@@ -1,54 +1,64 @@
-# 📊 UniSmart Pay - Setup Base de Données (MySQL / XAMPP)
+# Database setup
 
-Ce projet utilise **MySQL** (XAMPP) et un seul script officiel:
+UniSmart Pay uses MySQL. The complete schema and development seed data are in:
 
-- `database/unismart_pay_schema.sql`
+```text
+database/unismart_pay_schema.sql
+```
 
-Ce script crée la base `unismart_pay`, toutes les tables, et des données de démonstration (admins, étudiants, produits, comptes, terminaux).
+## Requirements
 
-## 🔧 Prérequis
+- MySQL through XAMPP, MySQL Workbench or a compatible server.
+- Permission to create the `unismart_pay` database.
 
-- XAMPP (Apache + MySQL)
-- phpMyAdmin ou MySQL Workbench
+## Import with phpMyAdmin
 
-## ✅ Installation
+1. Start MySQL in XAMPP.
+2. Open `http://localhost/phpmyadmin`.
+3. Open **Import**.
+4. Select `database/unismart_pay_schema.sql`.
+5. Run the import and wait for it to finish.
 
-### Option A — MySQL Workbench
+## Import from a terminal
 
-1. Ouvrir MySQL Workbench
-2. File → Open SQL Script
-3. Sélectionner `database/unismart_pay_schema.sql`
-4. Exécuter (⚡)
-
-### Option B — phpMyAdmin
-
-1. Ouvrir `http://localhost/phpmyadmin`
-2. Onglet **Importer**
-3. Importer `database/unismart_pay_schema.sql`
-
-### Option C — Ligne de commande
+From the repository root:
 
 ```bash
 mysql -u root -p < database/unismart_pay_schema.sql
 ```
 
-## 🔍 Vérifications
+If the root account has no password, press Enter when prompted.
+
+## Configure PHP
+
+Check `web/config/config.php` and make sure these values match MySQL:
+
+```text
+DB_NAME = unismart_pay
+DB_USER = root
+DB_PASS = your-password
+```
+
+Do not use the example values for a production deployment.
+
+## Verify the import
 
 ```sql
-SHOW DATABASES;
 USE unismart_pay;
 SHOW TABLES;
 
 SELECT email, role, actif FROM admins;
 SELECT matricule, actif FROM etudiants;
 SELECT nom, prix, stock FROM produits;
+SELECT id_terminal, type, statut FROM terminaux;
 ```
 
-## 🔐 Comptes de démo
+The seed data includes development accounts, products, balances and terminals.
+The credentials are intentionally for local testing only. Replace or disable
+them before exposing the application to a network.
 
-- Admin: `admin@unismart.tn` / `Admin@1234`
-- Étudiant: `2024/FST/0001` / `Etudiant@1234`
+## Existing installations
 
----
-
-**Version:** 2.0 (MySQL/PDO)
+Back up the database before importing a new schema. Do not run ad-hoc `ALTER`
+statements copied from older documentation without checking the current schema
+first; the SQL file is the source of truth for a fresh installation.

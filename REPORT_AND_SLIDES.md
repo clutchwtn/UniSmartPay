@@ -1,98 +1,46 @@
-# UniSmartPay — Livrables (LaTeX)
+# Report and presentation notes
 
-Ce repo contient :
-- le **rapport final** (40 pages max, 4–5 chapitres) : `report/main.tex`
-- les **slides** (≤ 15) : `slides/slides.tex`
-- le **document technique (Rendu final)** : `report/rapport_technique.tex`
+This file is a content guide for preparing a project report or presentation.
+It does not describe runtime installation.
 
-## 1) Compiler le rapport final (PDF)
+## Suggested report structure
 
-### Option A — latexmk (recommandé)
-PowerShell (Windows) :
-```powershell
-Set-Location report
-latexmk -pdf main.tex
-```
+1. **Problem and objectives**
+   - University payment use case.
+   - Student, cafeteria and terminal requirements.
+2. **System design**
+   - PHP/MySQL web application.
+   - ESP32, RC522 and local network.
+   - RESTO and BUVETTE payment flows.
+3. **Implementation**
+   - Database entities and transaction handling.
+   - RFID UID verification.
+   - Web and terminal logging.
+4. **Testing**
+   - Successful payment.
+   - Unknown or inactive card.
+   - Insufficient balance.
+   - Expired or missing cafeteria order.
+   - Network failure.
+5. **Limitations and future work**
+   - Terminal authentication, HTTPS and offline recovery.
 
-### Option B — pdflatex
-```powershell
-Set-Location report
-pdflatex .\main.tex
-pdflatex .\main.tex
-```
+## Recommended evidence
 
-Sortie attendue : `report/main.pdf`
+- Application home and login screens.
+- Student balance and transaction history.
+- Product scan and cafeteria cart.
+- Terminal mode selection.
+- ESP32 wiring and Serial Monitor output.
+- A successful payment record and its server log.
 
-## 2) Compiler les slides (PDF)
+Do not include real passwords, Wi-Fi credentials, card secrets or personal
+student data in screenshots or submitted documents. Replace them with test
+values.
 
-### Option A — latexmk
-```powershell
-Set-Location slides
-latexmk -pdf slides.tex
-```
+## Build note
 
-### Option B — pdflatex
-```powershell
-Set-Location slides
-pdflatex .\slides.tex
-pdflatex .\slides.tex
-```
-
-Sortie attendue : `slides/slides.pdf`
-
-## 3) Compiler le document technique (Rendu final)
-
-```powershell
-Set-Location report
-pdflatex .\rapport_technique.tex
-pdflatex .\rapport_technique.tex
-```
-
-Sortie attendue : `report/rapport_technique.pdf`
-
-## 4) Images (captures d’écran)
-
-Déposez vos images (PNG/JPG) dans : `report/figures/`.
-
-Le rapport et les slides sont **résilients** : s’il manque une image, un cadre placeholder s’affiche (le PDF compile quand même).
-
-### Noms attendus (déjà référencés)
-- `report/figures/ui_admin_login.png`
-- `report/figures/ui_student_login.png`
-- `report/figures/ui_admin_dashboard.png`
-- `report/figures/ui_student_dashboard.png` *(optionnel, utilisé dans les slides)*
-- `report/figures/ui_terminal_resto.png` *(optionnel)*
-- `report/figures/ui_terminal_buvette.png` *(optionnel)*
-- `report/figures/ui_payment_resto.png` *(optionnel)*
-- `report/figures/ui_serial_monitor.png` *(optionnel)*
-- `report/figures/ui_student_card.png` *(optionnel)*
-- `report/figures/architecture.png` *(optionnel : schéma d’architecture)*
-- `report/figures/rfid_step1_read_uid.png`
-- `report/figures/rfid_step2_api_check.png`
-- `report/figures/rfid_step3_led_feedback.png`
-
-## 5) Champs à compléter
-
-Dans `report/main.tex`, `slides/slides.tex` et `report/rapport_technique.tex`, compléter :
-- noms des membres
-- classe
-- lien GitHub
-
-## 6) Conformité consignes (Classroom)
-
-- Rapport final : PDF uniquement — **40 pages max** — **4 ou 5 chapitres** — nom : `Nom1_Nom2_Nom3_Nom4_Nom5_RAPPORT.pdf`
-- Slides : PDF uniquement — **15 slides max** — nom : `Nom1_Nom2_Nom3_Nom4_Nom5_SLIDES.pdf`
-- Document technique (Rendu final) : PDF uniquement — doit contenir infos groupe + lien GitHub + exécution + doc technique courte + guide utilisateur — nom : `Nom1_Nom2_Nom3_Nom4_Nom5_RenduFinal.pdf`
-
-Important (document technique) : ne mentionnez pas la vidéo dans ce PDF. La vidéo est déposée séparément dans le devoir dédié.
-
-## 7) Renommer les PDF avant dépôt
-
-Après compilation, vous devez renommer les fichiers selon le format exigé.
-
-Exemple PowerShell (depuis la racine du repo) :
-```powershell
-Copy-Item .\report\main.pdf .\Nom1_Nom2_Nom3_Nom4_Nom5_RAPPORT.pdf
-Copy-Item .\slides\slides.pdf .\Nom1_Nom2_Nom3_Nom4_Nom5_SLIDES.pdf
-Copy-Item .\report\rapport_technique.pdf .\Nom1_Nom2_Nom3_Nom4_Nom5_RenduFinal.pdf
-```
+The repository currently contains the application source, ESP32 sketch and
+documentation. If separate LaTeX report or slide source is added later, document
+its exact build command here and keep generated PDFs out of the source tree
+unless they are explicitly required for submission.

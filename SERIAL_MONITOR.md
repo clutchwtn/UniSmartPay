@@ -1,145 +1,87 @@
-# MODULE SERIAL MONITOR (Journal temps réel)
+# Serial monitoring and terminal logs
 
-Ce projet fournit un "Serial Monitor" professionnel sous deux formes :
+UniSmart Pay exposes terminal activity in three places:
 
-1) **Arduino Serial Monitor (ESP32)** : logs au format `[HH:MM:SS] [TYPE] MESSAGE`.
-2) **Web Serial Monitor (UI Terminal)** : panneau "Logs du terminal" qui lit les messages stockés dans la table MySQL `code_appareil`.
-3) **Web Serial Monitor (USB / COM)** : panneau "Serial Monitor (USB)" qui lit directement le port série (comme Arduino IDE) depuis le navigateur.
+1. The ESP32 Serial Monitor.
+2. The terminal web pages, using logs stored in `code_appareil`.
+3. The browser Web Serial panel, which reads the ESP32 USB port directly.
 
-> Bonus : l'ESP32 et l'interface web peuvent aussi **pousser des logs en base** via l'API `POST /web/api/terminal/log.php`.
+## ESP32 output
 
----
+Open the Arduino Serial Monitor at **115200 baud**. Messages use:
 
-## Formats
-
-Format standard :
-
-```
-[HEURE] [TYPE] MESSAGE
+```text
+[HH:MM:SS] [TYPE] MESSAGE
 ```
 
-Types recommandés :
+Common types include `SYSTEME`, `RFID`, `PAIEMENT`, `RESPONSE`, `SOLDE`,
+`SUCCESS`, `WARNING`, `ERROR` and `USER`.
 
-- INFO, SUCCESS, ERROR, WARNING
-- SCAN, PANIER
-- RFID
-- PAIEMENT, RESPONSE
-- SOLDE
-- USER, RESTO
+Useful startup messages:
 
----
+- RC522 firmware version.
+- Wi-Fi connection and local IP.
+- Terminal ID and active mode.
+- Server URL.
 
-## MODE BUVETTE — Serial Monitor
+## Web logs
 
-Le système affiche en temps réel :
+The terminal pages display logs saved in `code_appareil`. A log can be written
+with:
 
-1. **Scan produits**
-   - Nom produit
-   - Prix
-   - Code barre
+```http
+POST /web/api/terminal/log.php
+Content-Type: application/json
+```
 
-2. **Panier**
-   - Total actuel après chaque ajout / suppression
-
-3. **Paiement (commande terminal)**
-   - Montant total envoyé
-   - Statut (SUCCESS / ERROR)
-   - Référence si succès
-
-4. **Réponse serveur**
-   - Statut
-   - Message
-
-Sources de logs :
-- Web (scan + panier + création commande)
-- ESP32 (RFID + envoi paiement + réponse + solde)
-
----
-
-## MODE RESTO — Serial Monitor
-
-Le système affiche en temps réel :
-
-1. **RFID**
-   - UID détecté
-
-2. **Infos paiement**
-   - Prix ticket resto (côté ESP32)
-
-3. **Paiement**
-   - Envoi au serveur
-   - Réponse
-
-4. **Résultat**
-   - SUCCESS ou ERROR
-   - Solde après paiement si disponible
-
----
-
-## APIs
-
-### Lire les logs (Web UI)
-
-- `GET /web/api/terminal_logs.php?terminal_id=1&limit=25`
-
-### Ajouter un log (Web/ESP32)
-
-- `POST /web/api/terminal/log.php`
-
-Payload JSON :
+Example payload:
 
 ```json
 {
   "id_terminal": 1,
   "type_message": "RFID",
-  "message": "Carte détectée : AA:BB:CC:DD",
+  "message": "Card detected",
   "uid_carte": "AABBCCDD",
-  "donnees_json": {"amount": 3.5, "mode": "RESTO"}
+  "donnees_json": {
+    "mode": "RESTO"
+  }
 }
 ```
 
----
+The terminal itself sends these logs on a best-effort basis. A failed log
+request must not be interpreted as a failed payment; the payment API response
+is authoritative.
 
-## Notes réseau (ESP32)
+## Browser Web Serial
 
-Si l'ESP32 affiche `HTTP status: -11` / `read Timeout` :
+Use Chrome or Edge on a desktop computer:
 
-- Vérifier que l'ESP32 et le PC sont sur le même WiFi
-- Vérifier que l'URL `SERVER_URL` est correcte (IP du PC)
-- Vérifier que le PC autorise l'entrée sur le port 80 (Firewall Windows)
-- Vérifier que Apache est démarré (XAMPP)
+1. Open the RESTO or BUVETTE terminal page.
+2. Close Arduino IDE's Serial Monitor and Serial Plotter.
+3. Click **Connect** in the USB Serial Monitor.
+4. Select the ESP32 port.
 
----
+Web Serial requires HTTPS or `http://localhost` / `http://127.0.0.1`. It is not
+reliably available on mobile browsers.
 
-## Web Serial (USB / COM)
+## Network troubleshooting
 
-Tu peux lire la sortie série de l'ESP32 **directement dans le site** (comme Arduino IDE) :
+For HTTP timeouts:
 
-- Ouvre le site avec **Chrome ou Edge (desktop)**
-- Va sur:
-   - `/terminal/resto.php`
-   - `/terminal/buvette.php`
-- Dans la section **Serial Monitor (USB)**, clique **Connecter** puis choisis le port (COM)
+1. Confirm Apache is running.
+2. Confirm the ESP32 and computer use the same network.
+3. Use the computer's LAN IP in `SERVER_URL`.
+4. Do not use `localhost` in the ESP32 sketch.
+5. Check the computer firewall and Apache error log.
 
-Contraintes :
-- Fonctionne sur **HTTPS** ou sur `http://localhost` / `http://127.0.0.1`
-- Ne fonctionne pas sur la plupart des téléphones
+## Database troubleshooting
 
----
+If logs do not appear in the web interface, verify that:
 
-## Migration MySQL (important)
+- MySQL is running.
+- `web/config/config.php` points to the correct database.
+- The terminal ID exists and is active.
+- The `code_appareil` table exists.
 
-Si ta base existe déjà, il faut **mettre à jour l'ENUM** `code_appareil.type_message` pour accepter les nouveaux types (RFID/PANIER/SUCCESS/...).
-
-Exécuter (dans MySQL Workbench / phpMyAdmin) :
-
-```sql
-ALTER TABLE code_appareil
-MODIFY type_message ENUM(
-   'INFO','SUCCESS','WARNING','ERROR','ERREUR',
-   'SCAN','PANIER','RFID',
-   'PAIEMENT','RESPONSE',
-   'USER','RESTO','SOLDE',
-   'SYSTEME','CONNEXION'
-) NOT NULL DEFAULT 'INFO';
-```
+Do not alter the `type_message` column based on old documentation without
+checking `database/unismart_pay_schema.sql` and the current API validation.

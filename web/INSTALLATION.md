@@ -1,215 +1,95 @@
-# 📊 UniSmart Pay - Guide d'Installation Web (XAMPP)
+# UniSmart Pay - Installation web (XAMPP)
 
-## 🎯 Vue d'ensemble
+## Prérequis
 
-UniSmart Pay est un système de paiement pour université utilisant:
-
-- **Web:** PHP (PDO) + HTML/CSS/JS
-- **DB:** MySQL (XAMPP)
-- **Buvette:** scan code-barres via QuaggaJS (caméra navigateur)
-- **Terminal RFID (optionnel):** ESP32 + RC522 (endpoints PHP)
-
----
-
-## 🚀 Installation rapide
-
-### Prérequis
-
-- XAMPP (Apache + MySQL)
+- XAMPP avec Apache et MySQL
 - PHP 8.x recommandé
+- Navigateur récent (Chrome/Edge recommandé pour caméra et Web Serial)
 
-### 1) Copier le projet
+## Installation
 
-```bash
-Placer le dossier `UniSmartPay` dans `C:\xampp\htdocs\UniSmartPay`
+1. Copier le projet dans `C:\xampp\htdocs\UniSmartPay`.
+2. Vérifier `web/config/config.php`:
+   - `DB_NAME = unismart_pay`
+   - `DB_USER = root`
+   - `DB_PASS = ''` (configuration XAMPP courante)
+3. Importer `database/unismart_pay_schema.sql` avec phpMyAdmin.
+4. Démarrer **Apache** et **MySQL** dans le panneau XAMPP.
+5. Ouvrir `http://localhost/UniSmartPay/web/`.
+
+Si Apache utilise un port différent de 80, adapter les URLs de l'application
+et du terminal ESP32.
+
+## URLs principales
+
+- Accueil: `http://localhost/UniSmartPay/web/`
+- Administration: `http://localhost/UniSmartPay/web/admin/login.php`
+- Portail étudiant: `http://localhost/UniSmartPay/web/etudiant/login.php`
+
+Les comptes créés par le script SQL sont indiqués dans
+[`../DATABASE-SETUP.md`](../DATABASE-SETUP.md). Ils sont destinés au
+développement uniquement; changez-les avant toute utilisation réelle.
+
+## Structure
+
+- `web/config/`: configuration et connexion PDO.
+- `web/includes/`: sessions, CSRF, helpers et mise en page.
+- `web/etudiant/`: portail étudiant et paiement buvette.
+- `web/admin/`: administration, étudiants, cartes et terminaux.
+- `web/api/`: recherche produit, checkout et API du terminal RFID.
+
+## Vérification fonctionnelle
+
+1. Se connecter à l'administration.
+2. Vérifier qu'un étudiant possède un compte et un solde.
+3. Assigner un UID RFID à cet étudiant.
+4. En mode BUVETTE, créer une commande depuis la page de terminal.
+5. Présenter la carte au terminal ESP32 et vérifier le statut de la commande.
+
+## Terminal RFID
+
+Voir [`../esp32/SETUP_GUIDE.md`](../esp32/SETUP_GUIDE.md). Pour un ESP32 sur le
+réseau local, `SERVER_URL` doit utiliser l'adresse LAN du PC:
+
+```text
+http://192.168.1.25/UniSmartPay/web/api/payment.php
 ```
 
-### 2) Configuration DB
+L'ESP32 et le PC doivent être sur le même réseau. Apache doit être démarré et
+le pare-feu doit autoriser les connexions vers le serveur HTTP.
 
-Les identifiants MySQL sont dans `web/config/config.php`:
+## Sécurité
 
-- `DB_NAME = unismart_pay`
-- `DB_USER = root`
-- `DB_PASS = ''` (par défaut XAMPP)
+- Utiliser HTTPS en production.
+- Ne pas conserver les comptes de démonstration.
+- Ne pas placer de mots de passe Wi-Fi dans un dépôt public.
+- Garder la validation serveur et la protection CSRF activées.
+- Restreindre l'accès MySQL et les endpoints du terminal au réseau nécessaire.
 
-Importer la base avec `database/unismart_pay_schema.sql` (voir `DATABASE-SETUP.md`).
+## Dépannage
 
----
+### Erreur de connexion MySQL
 
-## 🌍 Accès
+Vérifier que MySQL est démarré, que `web/config/config.php` correspond à votre
+installation et que `unismart_pay` a été importée.
 
-### Admin Panel
-- URL: `http://localhost/UniSmartPay/web/admin/login.php`
+### Carte RFID introuvable
 
-### Student Portal
-- URL: `http://localhost/UniSmartPay/web/etudiant/login.php`
+Vérifier que l'UID est assigné à l'étudiant et que la carte est active. Le
+terminal accepte l'UID hexadécimal compact et sa forme séparée par `:`.
 
-### Accueil
-- URL: `http://localhost/UniSmartPay/web/`
+### Timeout ESP32
 
----
+Vérifier l'IP LAN dans `SERVER_URL`, le réseau Wi-Fi, Apache et le pare-feu du
+PC. `localhost` ne fonctionne pas depuis l'ESP32.
 
-## 📁 Structure
+### Erreur de session
 
-Le web utilise la structure suivante:
+Vérifier que les cookies sont autorisés et que PHP peut écrire dans son
+répertoire de sessions. Consulter les logs Apache/PHP dans XAMPP.
 
-- `web/config/*` (PDO + config)
-- `web/includes/*` (CSRF, helpers, header/footer)
-- `web/etudiant/*` (login, dashboard, paiement buvette)
-- `web/admin/*` (login, dashboard)
-- `web/api/*` (barcode lookup, checkout, endpoints terminal)
+## Documentation associée
 
----
-
-## 🔐 Sécurité
-
-### Points Importants
-
-1. **Authentification:**
-   - Mots de passe hashés (SHA-256)
-   - Sessions PHP sécurisées (1 heure)
-   - Validation des inputs
-
-2. **Base de Données:**
-   - Utiliser HTTPS en production
-   - Chiffrer les données sensibles
-   - Limiter les accès réseau
-
-3. **CORS/API:**
-   - Configurer CORS si vous appelez les endpoints depuis un autre domaine
-
----
-
-## 🧪 Test des Fonctionnalités
-
-### Tester l'authentification admin
-
-```bash
-# 1. Accéder à admin/login.php
-# 2. Entrer: 
-#    - Username: admin
-#    - Password: admin
-```
-
-### Tester l'authentification étudiant
-
-```bash
-# 1. Accéder à etudiant/login.php
-# 2. Ajouter un étudiant depuis admin
-# 3. Email: etudiant@example.com
-#    Password: password
-```
-
-### Tester les opérations
-
-```bash
-# 1. Admin Dashboard: Ajouter étudiant ✅
-# 2. Admin: Assigner carte RFID ✅
-# 3. Admin: Recharger compte ✅
-# 4. Étudiant: Vérifier solde ✅
-```
-
----
-
-## 🔌 Terminal RFID (optionnel)
-
-- Endpoint compatible ESP32: `web/api/payment.php`
-- Endpoints tokenisés: `web/api/terminal/paiement.php`, `web/api/terminal/solde.php`, `web/api/terminal/log.php`
-
----
-
-## 🐛 Dépannage
-
-### Problème: "Erreur de connexion MySQL"
-
-```
-Solution:
-1. Vérifier que MySQL (XAMPP) est démarré
-2. Vérifier la config dans web/config/config.php (DB_HOST, DB_NAME, DB_USER, DB_PASS)
-3. Vérifier que la base `unismart_pay` est importée via database/unismart_pay_schema.sql
-```
-
-### Problème: "Carte RFID introuvable"
-
-```
-Solution:
-1. Vérifier que la carte est assignée à l'étudiant
-2. Vérifier que uid dans CARTES_RFID est correct
-3. Vérifier que active = 1
-```
-
-### Problème: "Erreur de session"
-
-```
-Solution:
-1. Vérifier que session_start() est appelé
-2. Vérifier les permissions du dossier /tmp
-3. Vérifier la configuration de session.save_path dans php.ini
-```
-
----
-
-## 📚 Documentation Complète
-
-- **DATABASE-SETUP.md** - Import MySQL (XAMPP)
-- **DEPLOYMENT.md** - Déploiement production
-- **SECURITY.md** - Considérations sécurité
-
----
-
-## 👥 Utilisateurs de Test
-
-### Admin
-- **Username:** admin
-- **Password:** admin
-
-### Étudiants
-Créer via le dashboard admin:
-- Nom: Jour Jean
-- Email: jean.jour@university.edu
-- Mot de passe: password
-
----
-
-## 📞 Support
-
-Pour les problèmes ou questions:
-1. Consulter les logs de sécurité (MySQL): `SELECT * FROM logs_securite ORDER BY date_log DESC;`
-2. Vérifier les erreurs Apache/PHP via le panneau XAMPP (Apache Logs)
-
----
-
-## ✅ Checklist de Déploiement
-
-- [ ] XAMPP (Apache + MySQL) installé
-- [ ] MySQL démarré
-- [ ] Base `unismart_pay` importée (database/unismart_pay_schema.sql)
-- [ ] web/config/config.php avec bons paramètres
-- [ ] Admin créé dans la table `admins`
-- [ ] Test login admin ✅
-- [ ] Test login étudiant ✅
-- [ ] Test ajout étudiant ✅
-- [ ] Test recharge compte ✅
-
----
-
-## 🔄 Prochaines Étapes
-
-1. **Table des Mots de Passe Étudiants:**
-   - (Optionnel) Ajouter une gestion de reset mot de passe
-
-2. **Terminaux:**
-   - Durcir l'auth (rotation token, IP allowlist)
-
-3. **Frontend amélioré:**
-   - Navigation et UX
-
-4. **ESP32:**
-   - Code microcontrôleur
-   - Communication avec API
-
----
-
-**Version:** 1.0  
-**Date:** Avril 2026  
-**Statut:** ✅ Prêt pour test
+- [`../DATABASE-SETUP.md`](../DATABASE-SETUP.md): import et vérification MySQL.
+- [`../esp32/SETUP_GUIDE.md`](../esp32/SETUP_GUIDE.md): montage ESP32.
+- [`../SERIAL_MONITOR.md`](../SERIAL_MONITOR.md): logs et diagnostic.

@@ -1,76 +1,51 @@
-# 🔌 UniSmart Pay - RFID Terminal Setup Guide
+# UniSmart Pay - Guide du terminal RFID ESP32
 
-## 📋 Hardware Components
+Ce guide concerne `unismart_pay_terminal.ino`, le sketch recommandé. Le fichier
+`unismart_pay.ino` est un ancien prototype avec écran LCD et boutons; ne pas le
+utiliser pour le câblage décrit ici.
 
-| Composant | Modèle | Quantité |
-|-----------|--------|----------|
-| Microcontroller | ESP32 WROOM-32 | 1 |
-| RFID Reader | RC522 | 1 |
-| LED Green | 5mm | 1 |
-| LED Red | 5mm | 1 |
-| Resistor | 330Ω | 2 |
-| Breadboard + Cables | Jumpers | - |
-| Power Supply | USB 5V ou +3.3V | 1 |
+## Matériel
 
----
+| Composant | Modèle | Qté |
+|---|---|---:|
+| Microcontrôleur | ESP32 WROOM-32 | 1 |
+| Lecteur RFID | RC522 | 1 |
+| LED verte / rouge | 5 mm | 1 / 1 |
+| Résistances | 330 Ω | 2 |
+| Breadboard et câbles | Jumpers | - |
 
-## 🔗 WIRING DIAGRAM
+## Câblage
 
-### ESP32 ↔ RC522 (RFID Reader)
+Le RC522 doit être alimenté en **3,3 V**, pas en 5 V.
 
-```
-ESP32 Pin     RC522 Pin
-─────────     ─────────
-G19    ───→   SDA (Chip Select)
-G18    ───→   SCK (Serial Clock)
-G23    ───→   MOSI (Master Out)
-G0     ───→   MISO (Master In)
-GND    ───→   GND
-+3.3V  ───→   +3.3V
-RST    ───→   RST (Pin 5 recommended)
-```
-
-### ESP32 ↔ LEDs
-
-```
-ESP32 Pin     LED Connection
-─────────     ──────────────
-G21    ───→   [330Ω] ──→ GREEN LED ──→ GND
-G22    ───→   [330Ω] ──→ RED LED   ──→ GND
-+3.3V  ───→   Both LED positive terminals (optional second rail)
-GND    ───→   Common ground
+```text
+ESP32 GPIO    RC522
+-----------    --------
+18             SCK
+23             MOSI
+19             MISO
+5              SDA / SS / CS
+4              RST
+GND            GND
+3V3            3.3V
 ```
 
----
+LED verte: GPIO 21 -> résistance 330 ohms -> LED -> GND.
+LED rouge: GPIO 22 -> résistance 330 ohms -> LED -> GND.
 
-## ⚙️ Software Setup
+## Installation logicielle
 
-### 1. Arduino IDE Configuration
+1. Dans **Preferences > Additional Boards Manager URLs**, ajouter:
+   `https://dl.espressif.com/dl/package_esp32_index.json`.
+2. Installer **esp32 by Espressif Systems** dans le Boards Manager.
+3. Sélectionner **ESP32 Dev Module** et le port USB de la carte.
+4. Installer `MFRC522` et `ArduinoJson 6.x` dans le Library Manager.
 
-**Install ESP32 Plugin:**
-- File > Preferences
-- Additional Boards Manager: `https://dl.espressif.com/dl/package_esp32_index.json`
-- Tools > Board > Boards Manager → Search "ESP32" → Install
+`WiFi`, `HTTPClient` et `SPI` sont fournis par le package ESP32.
 
-**Select Board:**
-- Tools > Board > ESP32 Arduino > ESP32 Dev Module
+## Configuration
 
-### 2. Required Libraries
-
-Install via Sketch > Include Library > Manage Libraries:
-
-```
-✅ MFRC522 by GithubCommunity (v1.4.10)
-✅ ArduinoJson by Benoit Blanchon (v6.21.0)
-✅ HTTPClient (built-in)
-✅ WiFi (built-in)
-✅ SPI (built-in)
-✅ Wire (built-in)
-```
-
-### 3. Configure WiFi Credentials
-
-Edit these constants in `unismart_pay_terminal.ino`:
+Modifier ces constantes dans `unismart_pay_terminal.ino`:
 
 ```cpp
 const char* SSID = "YOUR_WIFI_SSID";
@@ -79,190 +54,54 @@ const char* SERVER_URL =
   "http://YOUR_SERVER_IP/UniSmartPay/web/api/payment.php";
 ```
 
----
+`YOUR_SERVER_IP` est l'adresse LAN du PC qui exécute XAMPP, par exemple
+`192.168.1.25`. L'ESP32 ne peut pas atteindre le PC avec `localhost`.
+Ne pas publier de vrais identifiants Wi-Fi.
 
-## 🔧 Configuration Updates
+Le terminal utilise l'identifiant `TERMINAL_ID` défini dans le sketch. Il doit
+correspondre au terminal configuré dans l'application web.
 
-### Update Constants:
+## Téléversement et test
 
-```cpp
-// PINS (Already configured for your setup)
-#define SCK_PIN   18   // SCK
-#define MOSI_PIN  23   // MOSI
-#define MISO_PIN  19   // MISO
-#define SS_PIN    5    // SDA/CS
-#define RST_PIN   4    // RST
-#define LED_GREEN 21   // Green LED pin
-#define LED_RED   22   // Red LED pin
+1. Connecter l'ESP32 en USB.
+2. Sélectionner son port dans **Tools > Port**, puis téléverser le sketch.
+3. Ouvrir le Serial Monitor à **115200 bauds**.
+4. Vérifier la détection du firmware RC522 et la connexion Wi-Fi.
+5. Présenter une carte RFID assignée à un étudiant.
 
-// WiFi
-SSID = "YourNetworkName"
-PASSWORD = "YourPassword"
+Le PC et l'ESP32 doivent être sur le même réseau. Apache doit être démarré et
+le pare-feu doit autoriser les connexions entrantes vers le serveur HTTP.
 
-// Server
-SERVER_URL = "http://YOUR_SERVER_IP/UniSmartPay/web/api/payment.php"
-```
+## Fonctionnement
 
-Use the computer's LAN IP for `YOUR_SERVER_IP`; do not use `localhost`, because
-the ESP32 resolves that name to itself. Do not commit real Wi-Fi credentials.
+Au démarrage, le terminal récupère le mode du terminal depuis le serveur.
+En mode RESTO, il débite 3,50 DT. En mode BUVETTE, il réserve puis paie la
+plus ancienne commande en attente créée depuis le site.
 
----
+- LED verte: paiement accepté.
+- LED rouge: paiement refusé ou erreur.
+- LEDs éteintes: attente ou aucune commande BUVETTE.
+- Une même carte est ignorée pendant 10 secondes après traitement pour éviter
+  un double scan.
 
-## 🚀 Upload & Test
+## Dépannage
 
-### 1. Connect ESP32 to Computer
-- USB cable to ESP32 WROOM-32
+| Problème | Vérification |
+|---|---|
+| RC522 non détecté | Vérifier 3,3 V, GND, SS=GPIO5, RST=GPIO4 et les lignes SPI. |
+| Wi-Fi impossible | Vérifier SSID, mot de passe et réseau partagé avec le PC. |
+| Timeout HTTP | Vérifier l'IP du PC, Apache, le pare-feu et l'URL complète. |
+| LED éteinte | Vérifier résistance, polarité et GPIO21/GPIO22. |
+| Upload impossible | Sélectionner le bon modèle et port; maintenir BOOT si nécessaire. |
+| Carte introuvable | Assigner l'UID dans l'administration et vérifier son format. |
 
-### 2. Upload Code
-- Tools > Port > Select COM port (ESP32)
-- Sketch > Upload
-- Wait for upload complete
+## Endpoints utilisés
 
-### 3. Open Serial Monitor
-- Tools > Serial Monitor (115200 baud)
-- Should see initialization messages
+Le sketch appelle notamment:
 
-### Expected Output:
-
-```
-============================================
-UniSmart Pay - RFID Payment Terminal
-============================================
-Initializing RFID Reader...
-RFID Firmware Version: 0x92
-✅ RFID Reader initialized successfully!
-✅ WiFi connected!
-IP Address: 192.168.1.XXX
-============================================
-🔴 Waiting for RFID card...
-```
-
----
-
-## 🧪 Testing LEDs
-
-### Manual LED Test (Optional)
-
-Create a test sketch:
-
-```cpp
-void setup() {
-    pinMode(21, OUTPUT);  // Green
-    pinMode(16, OUTPUT);  // Red
-}
-
-void loop() {
-    // Blink green
-    digitalWrite(21, HIGH);
-    delay(500);
-    digitalWrite(21, LOW);
-    delay(500);
-    
-    // Blink red
-    digitalWrite(16, HIGH);
-    delay(500);
-    digitalWrite(16, LOW);
-    delay(500);
-}
-```
-
----
-
-## 📱 Testing RFID Payment
-
-1. **Place RFID card near reader**
-2. **Watch Serial Monitor for:**
-   - Card UID detected
-   - API request sent
-   - Response received
-
-3. **LED Behavior:**
-   - 🟢 **GREEN:** Payment successful
-   - 🔴 **RED:** Payment failed
-   - Both OFF: Idle state
-
----
-
-## 🔌 Physical Assembly
-
-### Breadboard Layout:
-
-```
-┌─────────────────────────┐
-│   ESP32 Dev Board       │
-│                         │
-│ G19 ──┐   ┌── G21 ──┬──────┐
-│ G18 ──┼─R1─┤       │330Ω  │ LED Green
-│ G23 ──┤   └─ GND ──┴──────┘
-│ G0  ──┤   ┌── G16 ──┬──────┐
-│ GND ──┼─R2─┤       │330Ω  │ LED Red
-│ +3.3V ┴   └─ GND ──┴──────┘
-└─────────────────────────┘
-        │
-        ↓ (SPI Bus)
-    RC522 Board
-    (RFID Reader)
-```
-
----
-
-## ⚠️ Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| RFID not detected | Check SPI wiring, verify firmware version |
-| WiFi won't connect | Check SSID/password, verify router signal |
-| LEDs not lighting | Check 330Ω resistors, verify GPIO pins |
-| Serial garbage | Change baud rate to 115200 |
-| Upload fails | Select correct board & COM port |
-
----
-
-## 📡 API Endpoint Expected
-
-Your server should have:
-
-**POST /api/payment**
-
-Request:
-```json
-{
-    "card_uid": "1A2B3C4D",
-    "amount": 5.50,
-    "terminal_id": 1
-}
-```
-
-Response:
-```json
-{
-    "success": true,
-    "balance": 95.50,
-    "message": "Payment successful"
-}
-```
-
----
-
-## 🔐 Security Notes
-
-⚠️ **Important:**
-- Don't commit WiFi credentials to public repos
-- Use environment variables or secure config
-- Implement HTTPS in production
-- Validate card UID server-side
-- Add transaction logging
-
----
-
-## 📚 References
-
-- [ESP32 Documentation](https://docs.espressif.com/projects/esp-idf/en/latest/)
-- [MFRC522 Library](https://github.com/miguelbalboa/rfid)
-- [RC522 Datasheet](https://datasheetspdf.com/pdf/MFRC522)
-
----
-
-**Version:** 1.0  
-**Last Updated:** April 2, 2026  
-**Status:** ✅ Production Ready
+- `POST /web/api/card_check.php`
+- `POST /web/api/payment.php` en mode RESTO
+- `GET /web/api/terminal_order_claim.php` en mode BUVETTE
+- `POST /web/api/terminal_order_pay.php` en mode BUVETTE
+- `GET /web/api/terminal_mode_get.php`
+- `POST /web/api/terminal/log.php`

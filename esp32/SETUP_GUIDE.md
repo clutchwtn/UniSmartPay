@@ -1,8 +1,6 @@
 # UniSmart Pay - Guide du terminal RFID ESP32
 
-Ce guide concerne `unismart_pay_terminal.ino`, le sketch recommandé. Le fichier
-`unismart_pay.ino` est un ancien prototype avec écran LCD et boutons; ne pas le
-utiliser pour le câblage décrit ici.
+Ce guide concerne `unismart_pay_terminal.ino`, le sketch supporté.
 
 ## Matériel
 

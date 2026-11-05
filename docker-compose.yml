@@ -1,0 +1,51 @@
+services:
+  app:
+    build:
+      context: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      UNISMARTPAY_DB_HOST: db
+      UNISMARTPAY_DB_PORT: 3306
+      UNISMARTPAY_DB_NAME: unismart_pay
+      UNISMARTPAY_DB_USER: ${MYSQL_USER:-unismart}
+      UNISMARTPAY_DB_PASS: ${MYSQL_PASSWORD:-unismart_dev_password}
+    ports:
+      - "${APP_PORT:-8080}:80"
+    restart: unless-stopped
+
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: unismart_pay
+      MYSQL_USER: ${MYSQL_USER:-unismart}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-unismart_dev_password}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_dev_password}
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./database/unismart_pay_schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    restart: unless-stopped
+
+  phpmyadmin:
+    image: phpmyadmin:5-apache
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      PMA_USER: ${MYSQL_USER:-unismart}
+      PMA_PASSWORD: ${MYSQL_PASSWORD:-unismart_dev_password}
+    ports:
+      - "${PHPMYADMIN_PORT:-8081}:80"
+    profiles:
+      - tools
+
+volumes:
+  db_data:

@@ -18,6 +18,25 @@ Chrome or Edge is recommended for barcode camera access and Web Serial.
 
 If Apache uses a port other than 80, include that port in every URL.
 
+## Docker alternative
+
+From the repository root:
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Open `http://localhost:8080/UniSmartPay/web/`. To also start phpMyAdmin:
+
+```bash
+docker compose --profile tools up --build
+```
+
+Open phpMyAdmin at `http://localhost:8081`. Docker stores MySQL data in a
+persistent volume. `docker compose down` keeps the data; `docker compose down
+-v` deletes it and causes the schema seed to run again on the next start.
+
 ## Main pages
 
 | Page | URL |
@@ -47,8 +66,11 @@ deployment.
 The ESP32 must reach Apache over the local network. Its URL must use the
 computer's LAN address, for example:
 
+When the ESP32 accesses Docker from another device, use the computer's LAN IP
+and the published application port:
+
 ```text
-http://192.168.1.25/UniSmartPay/web/api/payment.php
+http://192.168.1.25:8080/UniSmartPay/web/api/payment.php
 ```
 
 `localhost` works only from the computer itself. If requests time out, check

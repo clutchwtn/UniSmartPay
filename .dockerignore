@@ -1,0 +1,11 @@
+.git
+.gitignore
+.copilot
+node_modules
+*.log
+*.pdf
+*.aux
+*.fdb_latexmk
+*.fls
+*.out
+*.synctex.gz

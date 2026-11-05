@@ -30,6 +30,32 @@ The default database settings are in `web/config/config.php`. The demo
 accounts are documented in [`DATABASE-SETUP.md`](DATABASE-SETUP.md); change
 them before using the application outside development.
 
+## Docker development
+
+Docker is an alternative to XAMPP:
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Open `http://localhost:8080/UniSmartPay/web/`. Optional phpMyAdmin is available
+with:
+
+```bash
+docker compose --profile tools up --build
+```
+
+Then open `http://localhost:8081`. The MySQL data is stored in the
+`unismart_pay_db_data` Docker volume. To recreate the database from the SQL
+seed, stop the stack and remove that volume:
+
+```bash
+docker compose down -v
+```
+
+The Docker credentials are for local development only. Keep `.env` private.
+
 ## ESP32 terminal
 
 Use [`esp32/unismart_pay_terminal.ino`](esp32/unismart_pay_terminal.ino).

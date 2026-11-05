@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../includes/functions.php';
+require_admin_login();
 require_once __DIR__ . '/../includes/header.php';
 
 $terminalId = (int)($_GET['terminal_id'] ?? 1);

@@ -52,11 +52,12 @@ const char* SSID = "YOUR_WIFI_SSID";
 const char* PASSWORD = "YOUR_WIFI_PASSWORD";
 const char* SERVER_URL =
   "http://YOUR_SERVER_IP/UniSmartPay/web/api/payment.php";
+const char* TERMINAL_TOKEN = "YOUR_TERMINAL_TOKEN";
 ```
 
 `YOUR_SERVER_IP` is the computer's LAN address. Do not use `localhost`, and do
-not commit real credentials. `TERMINAL_ID` must match the terminal configured in
-the web application.
+not commit real credentials. Set `TERMINAL_TOKEN` to the token assigned to the
+same terminal in the `terminaux` table. `TERMINAL_ID` must match that terminal.
 
 ## Upload and test
 

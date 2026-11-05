@@ -7,6 +7,7 @@ require_once __DIR__ . '/../includes/functions.php';
 header('Content-Type: application/json; charset=utf-8');
 
 $terminalId = (int)($_GET['terminal_id'] ?? 0);
+$token = terminal_token();
 if ($terminalId <= 0) {
     http_response_code(400);
     echo json_encode(['ok' => false, 'error' => 'terminal_id requis']);
@@ -15,15 +16,7 @@ if ($terminalId <= 0) {
 
 try {
     $pdo = db();
-    $stmt = $pdo->prepare('SELECT id_terminal, type, statut FROM terminaux WHERE id_terminal = :id LIMIT 1');
-    $stmt->execute([':id' => $terminalId]);
-    $t = $stmt->fetch();
-
-    if (!$t) {
-        http_response_code(404);
-        echo json_encode(['ok' => false, 'error' => 'Terminal introuvable']);
-        exit();
-    }
+    $t = require_terminal($pdo, $token, $terminalId);
 
     echo json_encode([
         'ok' => true,

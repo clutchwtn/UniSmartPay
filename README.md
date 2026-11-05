@@ -62,7 +62,8 @@ Use [`esp32/unismart_pay_terminal.ino`](esp32/unismart_pay_terminal.ino).
 The terminal reads a card UID, checks it through the PHP API, and then performs
 the appropriate payment flow. The computer and ESP32 must be on the same
 network. Configure `SERVER_URL` with the computer's LAN address, never
-`localhost`.
+`localhost`. Configure `TERMINAL_TOKEN` with the credential assigned to that
+terminal.
 
 Read [`esp32/SETUP_GUIDE.md`](esp32/SETUP_GUIDE.md) before wiring or uploading.
 

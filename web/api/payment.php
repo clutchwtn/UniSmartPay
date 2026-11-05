@@ -25,8 +25,9 @@ if (!is_array($payload)) {
 $uid = strtoupper(trim((string)($payload['card_uid'] ?? '')));
 $amount = (float)($payload['amount'] ?? 0);
 $terminalId = (int)($payload['terminal_id'] ?? 0);
+$token = terminal_token();
 
-if ($uid === '' || $amount <= 0 || $terminalId <= 0) {
+if ($uid === '' || $amount <= 0 || $terminalId <= 0 || $token === '') {
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => 'Paramètres invalides']);
     exit();
@@ -36,14 +37,7 @@ try {
     $pdo = db();
     $pdo->beginTransaction();
 
-    // Lock terminal
-    $stmtT = $pdo->prepare('SELECT id_terminal, type, statut FROM terminaux WHERE id_terminal = :id LIMIT 1');
-    $stmtT->execute([':id' => $terminalId]);
-    $terminal = $stmtT->fetch();
-
-    if (!$terminal || (string)$terminal['statut'] !== 'actif') {
-        throw new RuntimeException('Terminal invalide');
-    }
+    $terminal = require_terminal($pdo, $token, $terminalId, true);
 
     // Find card/account
     $cands = uid_candidates($uid);

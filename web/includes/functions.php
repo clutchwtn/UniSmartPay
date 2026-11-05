@@ -31,6 +31,45 @@ function uid_candidates(string $uid): array {
     return array_values(array_unique($candidates));
 }
 
+function terminal_token(): string {
+    return trim((string)($_SERVER['HTTP_X_TERMINAL_TOKEN'] ?? ''));
+}
+
+function require_terminal(PDO $pdo, string $token, ?int $terminalId = null, bool $forUpdate = false): array {
+    if ($token === '') {
+        http_response_code(401);
+        echo json_encode(['ok' => false, 'error' => 'Terminal authentication required']);
+        exit();
+    }
+
+    $sql = 'SELECT id_terminal, id_faculte, nom, type, statut
+            FROM terminaux
+            WHERE token_auth = :token';
+    $params = [':token' => $token];
+
+    if ($terminalId !== null) {
+        $sql .= ' AND id_terminal = :terminal_id';
+        $params[':terminal_id'] = $terminalId;
+    }
+
+    $sql .= ' LIMIT 1';
+    if ($forUpdate) {
+        $sql .= ' FOR UPDATE';
+    }
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $terminal = $stmt->fetch();
+
+    if (!$terminal || (string)$terminal['statut'] !== 'actif') {
+        http_response_code(401);
+        echo json_encode(['ok' => false, 'error' => 'Terminal not authorized']);
+        exit();
+    }
+
+    return $terminal;
+}
+
 function is_hex_sha256(string $hash): bool {
     return (bool)preg_match('/^[a-f0-9]{64}$/i', $hash);
 }

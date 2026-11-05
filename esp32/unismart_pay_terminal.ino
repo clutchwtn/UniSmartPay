@@ -102,6 +102,7 @@ const char* PASSWORD = "YOUR_WIFI_PASSWORD";
 // IMPORTANT: si le serveur est sur XAMPP (htdocs/UniSmartPay), l'URL est souvent:
 //   http://<IP_DU_PC>/UniSmartPay/web/api/payment.php
 const char* SERVER_URL = "http://YOUR_SERVER_IP/UniSmartPay/web/api/payment.php";
+const char* TERMINAL_TOKEN = "YOUR_TERMINAL_TOKEN";
 
 // ============================================
 // TERMINAL MODE (RESTO / BUVETTE)
@@ -124,6 +125,10 @@ const float AMOUNT_BUVETTE = 5.50;
 const unsigned long CARD_COOLDOWN_MS = 10000;
 String g_lastProcessedUid = "";
 unsigned long g_lastProcessedMs = 0;
+
+void addTerminalAuth(HTTPClient& http) {
+    http.addHeader("X-Terminal-Token", TERMINAL_TOKEN);
+}
 
 bool sendLogToServer(int terminalId, const String& type, const String& message, const String& uidCard = "", float amount = -1, int orderId = 0) {
     if (WiFi.status() != WL_CONNECTED) return false;
@@ -149,6 +154,7 @@ bool sendLogToServer(int terminalId, const String& type, const String& message, 
     http.setTimeout(5000);
     http.begin(wifiClient, url);
     http.addHeader("Content-Type", "application/json");
+    addTerminalAuth(http);
     int code = http.POST(payload);
     http.end();
     return code > 0;
@@ -174,6 +180,7 @@ bool refreshTerminalMode(bool force = false) {
     HTTPClient http;
     http.setTimeout(5000);
     http.begin(wifiClient, url);
+    addTerminalAuth(http);
     int code = http.GET();
     String body = http.getString();
     http.end();
@@ -237,6 +244,7 @@ CardCheckResult checkCardInDb(const String& cardUID) {
     http.setTimeout(8000);
     http.begin(wifiClient, url);
     http.addHeader("Content-Type", "application/json");
+    addTerminalAuth(http);
 
     int code = http.POST(payload);
     String body = http.getString();
@@ -296,6 +304,7 @@ bool payRestoTicket(const String& cardUID) {
     http.setTimeout(15000);
     http.begin(wifiClient, SERVER_URL);
     http.addHeader("Content-Type", "application/json");
+    addTerminalAuth(http);
 
     int httpCode = http.POST(jsonPayload);
 
@@ -549,6 +558,7 @@ void processPayment(String cardUID) {
         HTTPClient httpClaim;
         httpClaim.setTimeout(15000);
         httpClaim.begin(wifiClient, claimUrl);
+        addTerminalAuth(httpClaim);
         int claimCode = httpClaim.GET();
         logMessage("RESPONSE", String("HTTP claim status: ") + claimCode);
 
@@ -635,6 +645,7 @@ void processPayment(String cardUID) {
         httpPay.setTimeout(15000);
         httpPay.begin(wifiClient, payUrl);
         httpPay.addHeader("Content-Type", "application/json");
+        addTerminalAuth(httpPay);
 
         int httpCode = httpPay.POST(jsonPayload);
         logMessage("RESPONSE", String("HTTP pay status: ") + httpCode);

@@ -24,6 +24,7 @@ if (!is_array($payload)) {
 }
 
 $uid = strtoupper(trim((string)($payload['uid'] ?? $payload['card_uid'] ?? '')));
+$token = terminal_token();
 if ($uid === '') {
     http_response_code(400);
     echo json_encode(['ok' => false, 'error' => 'uid requis']);
@@ -32,6 +33,7 @@ if ($uid === '') {
 
 try {
     $pdo = db();
+    require_terminal($pdo, $token);
 
     $cands = uid_candidates($uid);
     $in = implode(',', array_fill(0, count($cands), '?'));

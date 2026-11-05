@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/functions.php';
 header('Content-Type: application/json; charset=utf-8');
 
 $terminalId = (int)($_GET['terminal_id'] ?? 0);
+$token = terminal_token();
 if ($terminalId <= 0) {
     http_response_code(400);
     echo json_encode(['ok' => false, 'error' => 'terminal_id requis']);
@@ -19,13 +20,7 @@ try {
     $pdo = db();
     $pdo->beginTransaction();
 
-    // Validate terminal is active
-    $stmtT = $pdo->prepare('SELECT id_terminal, type, statut FROM terminaux WHERE id_terminal = :id LIMIT 1');
-    $stmtT->execute([':id' => $terminalId]);
-    $terminal = $stmtT->fetch();
-    if (!$terminal || (string)$terminal['statut'] !== 'actif') {
-        throw new RuntimeException('Terminal invalide');
-    }
+    require_terminal($pdo, $token, $terminalId, true);
 
     // Expire old pending orders
     $pdo->prepare('UPDATE terminal_orders SET statut = "EXPIRE", message_erreur = "Expirée" WHERE id_terminal = :id AND statut = "PENDING" AND expires_at IS NOT NULL AND expires_at < NOW()')

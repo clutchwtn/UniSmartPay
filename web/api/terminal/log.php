@@ -55,17 +55,17 @@ if ($message === '') {
     exit();
 }
 
+$token = terminal_token();
+$terminalId = (int)($payload['id_terminal'] ?? 0);
+if ($terminalId <= 0 || $token === '') {
+    http_response_code(400);
+    echo json_encode(['ok' => false, 'error' => 'Authenticated terminal required']);
+    exit();
+}
+
 try {
     $pdo = db();
-
-    // Validate terminal exists (active or not)
-    $stmtT = $pdo->prepare('SELECT id_terminal FROM terminaux WHERE id_terminal = :id LIMIT 1');
-    $stmtT->execute([':id' => $idTerminal]);
-    if (!$stmtT->fetch()) {
-        http_response_code(404);
-        echo json_encode(['ok' => false, 'error' => 'Terminal introuvable']);
-        exit();
-    }
+    require_terminal($pdo, $token, $terminalId);
 
     $stmt = $pdo->prepare(
         'INSERT INTO code_appareil (id_terminal, uid_terminal, type_message, message, donnees_json, uid_carte)

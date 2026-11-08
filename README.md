@@ -4,6 +4,8 @@ UniSmart Pay is a university payment platform built with PHP, PDO and MySQL.
 It includes a student portal, a cafeteria workflow and an optional ESP32 RFID
 payment terminal.
 
+Demo video: https://youtu.be/cDfxOyyTLME
+
 ## What is included
 
 - Student login, balance and transaction history.

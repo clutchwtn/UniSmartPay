@@ -27,7 +27,7 @@ CREATE TABLE admins (
 	nom             VARCHAR(100) NOT NULL,
 	prenom          VARCHAR(100) NOT NULL,
 	email           VARCHAR(150) NOT NULL UNIQUE,
-	password_hash   VARCHAR(255) NOT NULL,                        -- SHA-256 ou bcrypt
+	password_hash   VARCHAR(255) NOT NULL,                        -- password_hash() output
 	role            ENUM('super_admin','admin_faculte') NOT NULL DEFAULT 'admin_faculte',
 	actif           TINYINT(1)   NOT NULL DEFAULT 1,
 	derniere_connexion TIMESTAMP NULL,
@@ -124,7 +124,7 @@ CREATE TABLE terminaux (
 	nom             VARCHAR(100) NOT NULL,
 	type            ENUM('RESTO','BUVETTE','RECHARGE') NOT NULL,
 	localisation    VARCHAR(200),
-	token_auth      VARCHAR(255) UNIQUE,                          -- token d'authentification Arduino
+	token_auth      VARCHAR(255) UNIQUE,                          -- SHA-256 hex of the terminal token (plaintext never stored)
 	statut          ENUM('actif','inactif','erreur') NOT NULL DEFAULT 'actif',
 	version_firmware VARCHAR(20),
 	derniere_connexion TIMESTAMP NULL,
@@ -255,28 +255,13 @@ INSERT INTO facultes (nom, code, description) VALUES
 ('Faculté des Sciences Économiques',         'FSE',  'Économie, Gestion, Commerce'),
 ('Institut Supérieur de Technologie',        'IST',  'Génie Civil, Électronique, Mécanique');
 
--- Super admin par défaut  (mot de passe : Admin@1234)
-INSERT INTO admins (id_faculte, nom, prenom, email, password_hash, role) VALUES
-(NULL, 'Système', 'Admin', 'admin@unismart.tn',
- SHA2('Admin@1234', 256), 'super_admin');
-
--- Admin par faculté (mot de passe : Admin@1234)
-INSERT INTO admins (id_faculte, nom, prenom, email, password_hash, role) VALUES
-(1, 'Ben Ali',   'Mohamed', 'admin.fst@unismart.tn',  SHA2('Admin@1234', 256), 'admin_faculte'),
-(2, 'Trabelsi',  'Sonia',   'admin.flsh@unismart.tn', SHA2('Admin@1234', 256), 'admin_faculte'),
-(3, 'Bouazizi',  'Karim',   'admin.fse@unismart.tn',  SHA2('Admin@1234', 256), 'admin_faculte'),
-(4, 'Mansouri',  'Leila',   'admin.ist@unismart.tn',  SHA2('Admin@1234', 256), 'admin_faculte');
+-- Admins: none seeded. Create them with: php scripts/create_admin.php
 
 -- Config restaurant par défaut
 INSERT INTO config_resto (prix_ticket, description) VALUES
 (3.50, 'Ticket repas restaurant universitaire');
 
--- Terminaux de démonstration
-INSERT INTO terminaux (id_faculte, nom, type, localisation, token_auth, statut) VALUES
-(1, 'Terminal Resto FST',    'RESTO',    'Restaurant FST - Entrée',   'TOKEN_RESTO_FST_001',   'actif'),
-(1, 'Terminal Buvette FST',  'BUVETTE',  'Buvette FST - Hall B',      'TOKEN_BUVETTE_FST_001', 'actif'),
-(2, 'Terminal Resto FLSH',   'RESTO',    'Restaurant FLSH - Entrée',  'TOKEN_RESTO_FLSH_001',  'actif'),
-(3, 'Terminal Recharge FSE', 'RECHARGE', 'Administration FSE',        'TOKEN_RECHARGE_FSE_001','actif');
+-- Terminals: none seeded. Create them with: php scripts/create_terminal.php
 
 -- Produit buvette (TEST)
 -- Code-barres fourni: 3700104455153
@@ -295,4 +280,4 @@ INSERT INTO comptes (id_etudiant, solde) VALUES (1, 20.00);
 --   hex:  9FF79DC2
 --   :  :  9F:F7:9D:C2
 INSERT INTO cartes (id_etudiant, uid_rfid, date_emission, date_expiration, created_by) VALUES
-(1, '9F:F7:9D:C2', CURDATE(), DATE_ADD(CURDATE(), INTERVAL 1 YEAR), 2);
+(1, '9F:F7:9D:C2', CURDATE(), DATE_ADD(CURDATE(), INTERVAL 1 YEAR), NULL);

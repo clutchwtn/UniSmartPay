@@ -33,7 +33,7 @@ try {
     $pdo = db();
 
     $stmtT = $pdo->prepare('SELECT id_terminal, statut FROM terminaux WHERE token_auth = :t LIMIT 1');
-    $stmtT->execute([':t' => $token]);
+    $stmtT->execute([':t' => hash_terminal_token($token)]);
     $term = $stmtT->fetch();
 
     if (!$term || (string)$term['statut'] !== 'actif') {

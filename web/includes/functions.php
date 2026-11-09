@@ -35,6 +35,10 @@ function terminal_token(): string {
     return trim((string)($_SERVER['HTTP_X_TERMINAL_TOKEN'] ?? ''));
 }
 
+function hash_terminal_token(string $token): string {
+    return hash('sha256', $token);
+}
+
 function require_terminal(PDO $pdo, string $token, ?int $terminalId = null, bool $forUpdate = false): array {
     if ($token === '') {
         http_response_code(401);
@@ -45,7 +49,7 @@ function require_terminal(PDO $pdo, string $token, ?int $terminalId = null, bool
     $sql = 'SELECT id_terminal, id_faculte, nom, type, statut
             FROM terminaux
             WHERE token_auth = :token';
-    $params = [':token' => $token];
+    $params = [':token' => hash_terminal_token($token)];
 
     if ($terminalId !== null) {
         $sql .= ' AND id_terminal = :terminal_id';

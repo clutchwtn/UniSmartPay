@@ -43,8 +43,7 @@ require_once __DIR__ . '/includes/header.php';
         </a>
       </div>
       <div class="demo-hint" style="margin-top:20px;">
-        <div><b>Étudiant:</b> 2024/FST/0001 &nbsp;/&nbsp; Etudiant@1234</div>
-        <div style="margin-top:3px;"><b>Admin:</b> admin@unismart.tn &nbsp;/&nbsp; Admin@1234</div>
+        <div><b>Étudiant:</b> TEST/RFID/0001 &nbsp;/&nbsp; Etudiant@1234</div>
       </div>
     </div>
 

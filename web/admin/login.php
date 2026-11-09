@@ -102,12 +102,6 @@ require_once __DIR__ . '/../includes/header.php';
 
     <div class="divider"></div>
 
-    <p style="font-size:12px; color:var(--muted); text-align:center;">
-      Démo&nbsp;: <code style="background:rgba(255,255,255,0.07);padding:2px 6px;border-radius:5px;color:var(--text);">admin@unismart.tn</code>
-      &nbsp;/&nbsp;
-      <code style="background:rgba(255,255,255,0.07);padding:2px 6px;border-radius:5px;color:var(--text);">Admin@1234</code>
-    </p>
-
     <div style="text-align:center; margin-top:14px;">
       <a href="<?php echo htmlspecialchars(BASE_URL); ?>/" style="font-size:12.5px; color:var(--muted); text-decoration:none; transition:color 0.18s;"
          onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">

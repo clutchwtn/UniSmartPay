@@ -6,6 +6,8 @@ require_once __DIR__ . '/../includes/functions.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
+require_admin_api();
+
 $terminalId = (int)($_GET['terminal_id'] ?? 0);
 $limit = (int)($_GET['limit'] ?? 20);
 if ($limit <= 0) $limit = 20;
@@ -45,7 +47,7 @@ try {
             'id' => (int)$r['id_message'],
             'type' => (string)$r['type_message'],
             'message' => (string)$r['message'],
-            'uid_carte' => $r['uid_carte'] !== null ? (string)$r['uid_carte'] : null,
+            'uid_carte' => $r['uid_carte'] !== null ? mask_uid((string)$r['uid_carte']) : null,
             'date' => (string)$r['date_message'],
         ];
     }

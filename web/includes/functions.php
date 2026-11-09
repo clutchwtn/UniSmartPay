@@ -125,6 +125,28 @@ function require_admin_login(): void {
     $_SESSION['login_time'] = time();
 }
 
+// JSON counterpart of require_admin_login(): same session and timeout checks,
+// but answers 401 + JSON instead of redirecting (for use by API endpoints).
+function require_admin_api(): void {
+    $fail = static function (string $error): void {
+        http_response_code(401);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => false, 'error' => $error]);
+        exit();
+    };
+
+    if (empty($_SESSION['admin_id'])) {
+        $fail('Authentification requise');
+    }
+
+    if (!empty($_SESSION['login_time']) && (time() - (int)$_SESSION['login_time'] > SESSION_DURATION)) {
+        session_destroy();
+        $fail('Session expirée');
+    }
+
+    $_SESSION['login_time'] = time();
+}
+
 function log_security(?int $idUser, string $typeUser, string $action, string $details, string $statut = 'SUCCES'): void {
     try {
         $pdo = db();

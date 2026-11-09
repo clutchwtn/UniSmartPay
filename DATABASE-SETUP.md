@@ -63,15 +63,15 @@ With Docker, run the scripts inside the app container (`-it` so the password
 prompt works):
 
 ```bash
-docker compose exec -it app php /var/www/html/UniSmartPay/scripts/create_admin.php admin@example.com Nom Prenom super_admin
-docker compose exec app php /var/www/html/UniSmartPay/scripts/create_terminal.php "Terminal Resto" RESTO 1
-docker compose exec app php /var/www/html/UniSmartPay/scripts/create_terminal.php "Terminal Buvette" BUVETTE 1
+docker compose exec -it app php /opt/unismartpay/scripts/create_admin.php admin@example.com Nom Prenom super_admin
+docker compose exec app php /opt/unismartpay/scripts/create_terminal.php "Terminal Resto" RESTO 1
+docker compose exec app php /opt/unismartpay/scripts/create_terminal.php "Terminal Buvette" BUVETTE 1
 ```
 
 Without Docker, run the same scripts with `php scripts/...` from the repository root.
 
 In Git Bash on Windows, run `export MSYS_NO_PATHCONV=1` first. Otherwise Git Bash
-rewrites `/var/www/...` into a Windows path and the container cannot find the script.
+rewrites container paths such as `/opt/...` into a Windows path and the container cannot find the script.
 
 - `create_admin.php` asks for the password (at least 12 characters) and stores it
   with `password_hash()`. A faculty admin needs `admin_faculte <id_faculte>`.

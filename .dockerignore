@@ -1,5 +1,6 @@
 .git
 .gitignore
+.env
 .copilot
 node_modules
 *.log

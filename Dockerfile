@@ -5,6 +5,13 @@ RUN docker-php-ext-install pdo_mysql \
 
 WORKDIR /var/www/html
 
-COPY . /var/www/html/UniSmartPay
+# Only web/ and assets/ are served. Everything else (.env, database/, esp32/,
+# docker-compose.yml, docs) stays out of the image's web root.
+COPY web/ /var/www/html/UniSmartPay/web/
+COPY assets/ /var/www/html/UniSmartPay/assets/
 
-RUN chown -R www-data:www-data /var/www/html/UniSmartPay
+# Setup scripts run inside the container but are not web-accessible. They load
+# ../web/includes/functions.php, so /opt/unismartpay/web points at the served copy.
+COPY scripts/ /opt/unismartpay/scripts/
+RUN ln -s /var/www/html/UniSmartPay/web /opt/unismartpay/web \
+    && chown -R www-data:www-data /var/www/html/UniSmartPay

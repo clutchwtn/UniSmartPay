@@ -183,8 +183,10 @@ CREATE TABLE terminal_orders (
 	created_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	updated_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 	expires_at     TIMESTAMP    NULL,
+	created_by_admin INT        NULL,             -- admin (caissier) qui a créé la commande
 	FOREIGN KEY (id_terminal) REFERENCES terminaux(id_terminal) ON DELETE CASCADE,
 	FOREIGN KEY (id_transfert) REFERENCES transferts(id_transfert) ON DELETE SET NULL,
+	FOREIGN KEY (created_by_admin) REFERENCES admins(id_admin) ON DELETE SET NULL,
 	INDEX idx_terminal_orders_pending (id_terminal, statut, created_at)
 ) ENGINE=InnoDB;
 

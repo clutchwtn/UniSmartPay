@@ -6,6 +6,8 @@ require_once __DIR__ . '/../includes/functions.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
+require_admin_api();
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['ok' => false, 'error' => 'Méthode non autorisée']);
@@ -93,24 +95,38 @@ try {
 
     $expiresAt = (new DateTimeImmutable('now'))->modify('+5 minutes')->format('Y-m-d H:i:s');
 
+    $pdo->beginTransaction();
+
+    // Only one order may wait per terminal: cancel anything still queued.
+    $pdo->prepare('UPDATE terminal_orders SET statut = "ANNULE", message_erreur = "Remplacée par une nouvelle commande" WHERE id_terminal = :id AND statut IN ("PENDING", "IN_PROGRESS")')
+        ->execute([':id' => $terminalId]);
+
     $stmt = $pdo->prepare(
-        'INSERT INTO terminal_orders (id_terminal, mode, statut, montant, items_json, expires_at)
-         VALUES (:id_terminal, "BUVETTE", "PENDING", :montant, :items_json, :expires_at)'
+        'INSERT INTO terminal_orders (id_terminal, mode, statut, montant, items_json, expires_at, created_by_admin)
+         VALUES (:id_terminal, "BUVETTE", "PENDING", :montant, :items_json, :expires_at, :created_by_admin)'
     );
     $stmt->execute([
         ':id_terminal' => $terminalId,
         ':montant' => $total,
         ':items_json' => $itemsJson,
         ':expires_at' => $expiresAt,
+        ':created_by_admin' => (int)$_SESSION['admin_id'],
     ]);
+    $orderId = (int)$pdo->lastInsertId();
+
+    $pdo->commit();
 
     echo json_encode([
         'ok' => true,
-        'order_id' => (int)$pdo->lastInsertId(),
+        'order_id' => $orderId,
         'montant' => $total,
         'expires_at' => $expiresAt,
     ]);
 } catch (Throwable $e) {
+    if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+
     http_response_code(400);
     $msg = $e instanceof RuntimeException ? $e->getMessage() : 'Erreur serveur';
     if (!($e instanceof RuntimeException)) {

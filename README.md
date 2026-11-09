@@ -86,5 +86,4 @@ Read [`esp32/SETUP_GUIDE.md`](esp32/SETUP_GUIDE.md) before wiring or uploading.
 - [`DATABASE-SETUP.md`](DATABASE-SETUP.md) - database import and checks.
 - [`esp32/SETUP_GUIDE.md`](esp32/SETUP_GUIDE.md) - ESP32 wiring and setup.
 - [`SERIAL_MONITOR.md`](SERIAL_MONITOR.md) - logs and serial troubleshooting.
-- [`NODE_RFID_SERVER.md`](NODE_RFID_SERVER.md) - optional Node.js serial bridge.
 - [`ROADMAP.md`](ROADMAP.md) - planned improvements.

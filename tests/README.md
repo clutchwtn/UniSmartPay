@@ -1,35 +1,52 @@
 # Tests
 
-`smoke_test.py` checks that the app still works and tracks the security fixes from the audit.
-It uses only the Python standard library and acts as the ESP32 terminal itself, so no device is needed.
+`smoke_test.py` runs against a live instance and checks two things:
+
+- **Functional:** logins, student pages, a restaurant payment, the full
+  cafeteria order flow and a recharge. Every test must say `PASS`; the script
+  exits with code 1 otherwise.
+- **Security:** one check per fixed vulnerability, labelled with its fix
+  number. Each should say `FIXED`; `OPEN` means a regression. These results
+  only count when all functional tests pass.
+
+It uses only the Python 3 standard library and acts as the ESP32 itself, so no
+device is needed. It tops the test student's balance back up after each
+payment, so it can be run repeatedly.
 
 ## Run
 
+Start the app, create an admin and two terminals (RESTO first, then BUVETTE;
+see [`../DATABASE-SETUP.md`](../DATABASE-SETUP.md)), then pass their
+credentials (Git Bash shown):
+
 ```bash
-docker compose up -d --build
+export RESTO_TOKEN=... BUVETTE_TOKEN=... ADMIN_EMAIL=admin@example.com ADMIN_PASS=...
 python tests/smoke_test.py
 ```
 
-- **Functional** tests must always say `PASS`. The script exits with code 1 if any of them fails.
-- **Security** checks say `OPEN` until the matching fix (`#1`, `#2`, ...) lands, then `FIXED`.
-- `--only func` / `--only sec` runs one group. `--lockout` also runs the #9 login-lockout check, which locks the test student for a while.
+| Option | Effect |
+|---|---|
+| `--only func` / `--only sec` | Run one group only. |
+| `--lockout` | Also check login lockout. This locks the test student for 15 minutes, so run it last. |
 
-Reset the database to the seed data with `docker compose down -v && docker compose up -d --build`.
+Other settings (with defaults): `APP_ROOT` (`http://localhost:8080/UniSmartPay`),
+`RESTO_TERMINAL` (`1`), `BUVETTE_TERMINAL` (`2`), `STUDENT_MAT`, `STUDENT_PASS`,
+`CARD_UID`, `PRODUCT_ID`, `PRODUCT_PRICE`.
 
-## After fix #1
+The security checks for card-less payments add a throwaway student on each
+run. Reset the database with `docker compose down -v` when needed.
 
-The seed tokens and admin password go away, so pass the new ones as environment variables (Git Bash):
+## Testing on a separate copy
+
+To avoid touching your own data, run a second instance on another port:
 
 ```bash
-export RESTO_TOKEN=... BUVETTE_TOKEN=... ADMIN_PASS=...
-python tests/smoke_test.py
+export MSYS_NO_PATHCONV=1   # Git Bash only
+APP_PORT=8090 docker compose -p unismart-verify up -d --build --wait
+# create the admin and terminals with: docker compose -p unismart-verify exec -T app php /opt/unismartpay/scripts/...
+APP_ROOT=http://localhost:8090/UniSmartPay python tests/smoke_test.py
+docker compose -p unismart-verify down -v
 ```
 
-Other settings: `APP_ROOT` (default `http://localhost:8080/UniSmartPay`), `RESTO_TERMINAL`, `BUVETTE_TERMINAL`, `ADMIN_EMAIL`, `STUDENT_MAT`, `STUDENT_PASS`, `CARD_UID`, `PRODUCT_ID`, `PRODUCT_PRICE`.
-
-## Rule for each fix
-
-1. Run the tests before the change.
-2. Make the fix.
-3. Run them again: functional still all `PASS`, and the fix's check flips to `FIXED`.
-4. If a fix intentionally changes a flow (#3 changes order claiming), update the test in the same commit.
+Docker can report MySQL as healthy slightly before it accepts connections. If
+the first requests fail with a database error, wait a few seconds and run again.

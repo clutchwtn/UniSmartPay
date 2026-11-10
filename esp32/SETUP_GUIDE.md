@@ -1,20 +1,12 @@
 # ESP32 RFID terminal setup
 
-This guide covers the supported sketch:
-
-```text
-esp32/unismart_pay_terminal.ino
-```
+Firmware: `esp32/unismart_pay_terminal.ino`.
 
 ## Hardware
 
-- ESP32 WROOM-32.
-- RC522 RFID reader.
-- One green and one red LED.
-- Two 330 ohm resistors.
-- Breadboard and jumper wires.
-
-The RC522 is a 3.3 V device. Do not power it from 5 V.
+- ESP32 WROOM-32 (ESP32 Dev Module).
+- RC522 RFID reader. It runs on 3.3 V: do not power it from 5 V.
+- One green and one red LED, each with a 330 Ω resistor.
 
 ## Wiring
 
@@ -23,89 +15,79 @@ The RC522 is a 3.3 V device. Do not power it from 5 V.
 | GPIO 18 | SCK |
 | GPIO 23 | MOSI |
 | GPIO 19 | MISO |
-| GPIO 5 | SDA / SS / CS |
+| GPIO 5 | SDA / SS |
 | GPIO 4 | RST |
 | GND | GND |
 | 3V3 | 3.3V |
 
-Connect GPIO 21 through a 330 ohm resistor to the green LED and GPIO 22
-through a 330 ohm resistor to the red LED. Connect the other LED terminals to
-GND.
+LEDs: GPIO 21 → resistor → green LED → GND, and GPIO 22 → resistor → red LED → GND.
+If you wire them to 3.3 V instead of GND, set `LED_ACTIVE_LOW = true` in the sketch.
 
 ## Arduino IDE
 
-1. Add this Boards Manager URL:
-   `https://dl.espressif.com/dl/package_esp32_index.json`
-2. Install **esp32 by Espressif Systems**.
-3. Select **ESP32 Dev Module**.
-4. Install the `MFRC522` and `ArduinoJson 6.x` libraries.
-5. Select the ESP32 USB port.
-
-`WiFi`, `HTTPClient` and `SPI` are supplied by the ESP32 board package.
+1. In **Preferences → Additional boards manager URLs**, add
+   `https://espressif.github.io/arduino-esp32/package_esp32_index.json`.
+2. In the Boards Manager, install **esp32 by Espressif Systems**.
+3. In the Library Manager, install **MFRC522** and **ArduinoJson** (version 6.x).
+4. Select **ESP32 Dev Module** and the ESP32's USB port.
 
 ## Configure the sketch
-
-Set these values in `unismart_pay_terminal.ino`:
 
 ```cpp
 const char* SSID = "YOUR_WIFI_SSID";
 const char* PASSWORD = "YOUR_WIFI_PASSWORD";
-const char* SERVER_URL =
-  "http://YOUR_SERVER_IP/UniSmartPay/web/api/payment.php";
+const char* SERVER_URL = "http://YOUR_SERVER_IP:8080/UniSmartPay/web/api/payment.php";
 const char* TERMINAL_TOKEN = "YOUR_TERMINAL_TOKEN";
+const int TERMINAL_ID = 1;
+const float AMOUNT_RESTO = 3.50;
 ```
 
-`YOUR_SERVER_IP` is the computer's LAN address. Do not use `localhost`, and do
-not commit real credentials. Set `TERMINAL_TOKEN` to the token assigned to the
-same terminal in the `terminaux` table. `TERMINAL_ID` must match that terminal.
+- **`SERVER_URL`:** use the server computer's LAN IP, for example `192.168.1.25`.
+  `localhost` would point at the ESP32 itself. Include the port: `8080` with
+  Docker, none with XAMPP on port 80. The other endpoints are derived from this URL.
+- **`TERMINAL_TOKEN` and `TERMINAL_ID`:** the token printed by
+  `scripts/create_terminal.php`, and the id of that same terminal.
+- **`AMOUNT_RESTO`:** the ticket price the terminal charges. Keep it equal to
+  the price in the `config_resto` table.
+
+Don't commit real Wi-Fi credentials or tokens.
+
+## How it works
+
+One ESP32 serves both modes. The mode is stored on the server: opening the
+RESTO or BUVETTE terminal page in the browser switches terminal 1 to that mode,
+and the ESP32 reads it before each payment.
+
+- **RESTO:** a card is presented → the terminal checks the card → charges `AMOUNT_RESTO`.
+- **BUVETTE:** the cashier scans products on the BUVETTE page and starts the
+  payment → a card is presented → the terminal claims that waiting order and pays it.
+- Green LED: payment accepted. Red LED: rejected or error.
+- The same card is ignored for 10 seconds after a payment, to avoid double scans.
 
 ## Upload and test
 
-1. Connect the ESP32 by USB.
-2. Select the correct board and port.
-3. Upload the sketch.
-4. Open Serial Monitor at 115200 baud.
-5. Confirm that the RC522 firmware is detected and Wi-Fi connects.
-6. Present an active card assigned to a student.
-
-The computer and ESP32 must be on the same network. Apache must be running, and
-the computer firewall must allow the HTTP connection.
-
-## Payment behavior
-
-- **RESTO:** charges the fixed `AMOUNT_RESTO` value.
-- **BUVETTE:** claims the oldest pending order for the terminal, then charges
-  the order amount.
-- Green LED: payment accepted.
-- Red LED: payment rejected or an error occurred.
-- A card already processed is ignored for 10 seconds to reduce duplicate scans.
+1. Upload the sketch, then open the Serial Monitor at 115200 baud.
+2. Check that the RC522 firmware version is shown and Wi-Fi connects.
+3. Present a card that is assigned to a student and active.
 
 ## Troubleshooting
 
 | Symptom | Check |
 |---|---|
-| RC522 not detected | 3.3 V, GND, GPIO 5, GPIO 4 and all SPI wires. |
-| Wi-Fi fails | SSID, password and shared network. |
-| HTTP timeout | LAN IP, Apache, firewall and full `SERVER_URL`. |
-| Card not found | UID assignment, active status and UID format. |
-| Upload fails | Board, port and BOOT button. |
-| LED does not light | Polarity, resistor and GPIO 21/22. |
+| RC522 not detected | 3.3 V and GND, the SPI wires, GPIO 5 and GPIO 4. |
+| Wi-Fi does not connect | SSID and password; the ESP32 only supports 2.4 GHz networks. |
+| HTTP timeout | LAN IP and port in `SERVER_URL`, server running, and the computer's firewall. |
+| `Terminal not authorized` | `TERMINAL_TOKEN` and `TERMINAL_ID` belong to the same active terminal. |
+| `Carte introuvable` | The card UID is assigned to a student (Administration → assign card). |
+| Upload fails | Board and port; hold the BOOT button while uploading. |
+| LED stays off | LED polarity, resistor, GPIO 21/22 and `LED_ACTIVE_LOW`. |
 
-## TODO on device
+More on logs and serial debugging: [`../SERIAL_MONITOR.md`](../SERIAL_MONITOR.md).
 
-The sketch currently talks plain HTTP. Before exposing the server with
-`UNISMARTPAY_FORCE_HTTPS=1` (which redirects HTTP to HTTPS), move the firmware
-to `WiFiClientSecure` with a pinned certificate (or CA) so the
-`X-Terminal-Token` header is never sent in clear text. The HTTP redirect would
-otherwise break the terminals.
+## HTTPS (to do)
 
-## API calls
-
-The sketch uses:
-
-- `POST /web/api/card_check.php`
-- `POST /web/api/payment.php`
-- `GET /web/api/terminal_order_claim.php`
-- `POST /web/api/terminal_order_pay.php`
-- `GET /web/api/terminal_mode_get.php`
-- `POST /web/api/terminal/log.php`
+The firmware uses plain HTTP, so the terminal token can be read by anyone on
+the same network. Use it only on a trusted network for now. Before enabling
+`UNISMARTPAY_FORCE_HTTPS=1` on the server, move the firmware to
+`WiFiClientSecure` with a pinned certificate. Otherwise the HTTPS redirect
+breaks the terminal.

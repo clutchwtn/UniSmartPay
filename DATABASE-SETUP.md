@@ -1,61 +1,27 @@
 # Database setup
 
-UniSmart Pay uses MySQL. The complete schema and development seed data are in:
+The full schema and the development seed data are in
+`database/unismart_pay_schema.sql`. It is the source of truth for a new database.
 
-```text
-database/unismart_pay_schema.sql
-```
+## Seed data
 
-## Requirements
+The seed creates the faculties, one test product (barcode `3700104455153`) and
+one test student for local testing:
 
-- MySQL through XAMPP, MySQL Workbench or a compatible server.
-- Permission to create the `unismart_pay` database.
+| Matricule | Password | Card UID | Balance |
+|---|---|---|---|
+| `TEST/RFID/0001` | `Etudiant@1234` | `9F:F7:9D:C2` | 20.00 DT |
 
-## Import with phpMyAdmin
+No admins and no terminals are seeded. Create them with the scripts below.
 
-1. Start MySQL in XAMPP.
-2. Open `http://localhost/phpmyadmin`.
-3. Open **Import**.
-4. Select `database/unismart_pay_schema.sql`.
-5. Run the import and wait for it to finish.
+## Loading the schema
 
-## Import from a terminal
-
-From the repository root:
-
-```bash
-mysql -u root -p < database/unismart_pay_schema.sql
-```
-
-If the root account has no password, press Enter when prompted.
-
-## Configure PHP
-
-Check `web/config/config.php` and make sure these values match MySQL:
-
-```text
-DB_NAME = unismart_pay
-DB_USER = root
-DB_PASS = your-password
-```
-
-Do not use the example values for a production deployment.
-
-## Verify the import
-
-```sql
-USE unismart_pay;
-SHOW TABLES;
-
-SELECT email, role, actif FROM admins;
-SELECT matricule, actif FROM etudiants;
-SELECT nom, prix, stock FROM produits;
-SELECT id_terminal, type, statut FROM terminaux;
-```
-
-The seed data includes faculties, a test product and one test student
-(`TEST/RFID/0001` / `Etudiant@1234`, card `9F:F7:9D:C2`) for local testing only.
-No admins and no terminals are seeded: create them with the scripts below.
+- **Docker:** the schema loads automatically the first time the `db` container
+  starts. To start over from the seed, run `docker compose down -v`, then
+  `docker compose up -d --build`.
+- **XAMPP / MySQL:** import the file with phpMyAdmin or
+  `mysql -u root -p < database/unismart_pay_schema.sql`. See
+  [`web/INSTALLATION.md`](web/INSTALLATION.md) for the database user and settings.
 
 ## Create admins and terminals
 
@@ -68,26 +34,44 @@ docker compose exec app php /opt/unismartpay/scripts/create_terminal.php "Termin
 docker compose exec app php /opt/unismartpay/scripts/create_terminal.php "Terminal Buvette" BUVETTE 1
 ```
 
-Without Docker, run the same scripts with `php scripts/...` from the repository root.
+Without Docker, run `php scripts/create_admin.php ...` from the repository root,
+with the database variables set (see `web/INSTALLATION.md`).
 
-In Git Bash on Windows, run `export MSYS_NO_PATHCONV=1` first. Otherwise Git Bash
-rewrites container paths such as `/opt/...` into a Windows path and the container cannot find the script.
+In Git Bash on Windows, run `export MSYS_NO_PATHCONV=1` first. Otherwise Git
+Bash turns `/opt/...` into a Windows path and the container cannot find the script.
 
-- `create_admin.php` asks for the password (at least 12 characters) and stores it
-  with `password_hash()`. A faculty admin needs `admin_faculte <id_faculte>`.
-- `create_terminal.php` prints the terminal's token **once**. Copy it into
-  `TERMINAL_TOKEN` in the ESP32 firmware right away; only its SHA-256 hash is
-  stored, so it cannot be recovered later.
-- Terminal ids follow creation order. Create the RESTO terminal first and the
-  BUVETTE terminal second to get ids 1 and 2.
+- **`create_admin.php`:** arguments are `<email> <nom> <prenom> [super_admin|admin_faculte] [id_faculte]`.
+  It asks for the password (at least 12 characters) and stores it with
+  `password_hash()`. A faculty admin needs an `id_faculte`.
+- **`create_terminal.php`:** arguments are `<nom> <RESTO|BUVETTE|RECHARGE> [id_faculte] [localisation]`.
+  It prints the terminal token **once**. Put it in `TERMINAL_TOKEN` in the ESP32
+  firmware right away: only its SHA-256 hash is stored, so it cannot be recovered.
+- **Terminal ids** follow creation order. Create the RESTO terminal first and
+  the BUVETTE terminal second to get ids 1 and 2.
 
-## Existing installations
+## Migrations
 
-Back up the database before importing a new schema. Do not run ad-hoc `ALTER`
-statements copied from older documentation without checking the current schema
-first; the SQL file is the source of truth for a fresh installation.
+`database/migrations/` contains the changes for databases created before a
+schema update. A new database already includes them. Apply each file once, in
+order:
 
-Terminal tokens are now stored hashed, so terminals from an older database
-(plain tokens such as `TOKEN_RESTO_FST_001`) stop authenticating. For a
-development database, reset it (`docker compose down -v && docker compose up -d --build`)
-and create new admins and terminals as above.
+```bash
+mysql -u <user> -p unismart_pay < database/migrations/001_terminal_orders_created_by_admin.sql
+mysql -u <user> -p unismart_pay < database/migrations/002_login_attempts.sql
+```
+
+Terminal tokens are stored hashed, so terminals from older databases (plain
+tokens such as `TOKEN_RESTO_FST_001`) no longer authenticate. Create new
+terminals with the script and update the firmware.
+
+Back up the database before applying migrations to real data.
+
+## Check the database
+
+```sql
+USE unismart_pay;
+SELECT email, role, actif FROM admins;
+SELECT id_terminal, nom, type, statut FROM terminaux;
+SELECT matricule, actif FROM etudiants;
+SELECT nom, code_barre, prix, stock FROM produits;
+```

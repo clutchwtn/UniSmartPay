@@ -1,45 +1,35 @@
 # Roadmap
 
-This roadmap is intentionally ordered by reliability and safety rather than
-feature count.
+Known limitations, in priority order. The first group should be done before
+the system handles real money.
 
-## Phase 1 - verify the current system
+## Before real use
 
-- Compile the ESP32 sketch with the selected board package and libraries.
-- Test RC522 detection, Wi-Fi connection and API reachability.
-- Test RESTO payment with an active card and insufficient balance.
-- Test BUVETTE order claim, payment, expiration and duplicate scans.
-- Run PHP syntax checks and database smoke tests in a local XAMPP setup.
+- **Server-side restaurant price.** `payment.php` charges the amount the
+  terminal sends. For RESTO terminals, the server should use
+  `config_resto.prix_ticket` instead.
+- **Block lost or stolen cards.** The `cartes` table has the fields
+  (`statut`, `motif_blocage`, `bloquee_par`), but no page sets them yet. Add a
+  "block my card" action for students and block/unblock for admins.
+- **No double charge on retry.** If the Wi-Fi drops after a payment succeeds,
+  the terminal can retry and charge again. Send a unique request id with each
+  payment and ignore repeats.
+- **HTTPS for the terminal.** Move the firmware to `WiFiClientSecure` with a
+  pinned certificate, then enable `UNISMARTPAY_FORCE_HTTPS`.
+- **Remove unused endpoints.** `web/api/terminal/paiement.php` and
+  `web/api/terminal/solde.php` are not used by the firmware.
 
-## Phase 2 - protect the terminal API
+## Next
 
-- Add device authentication for ESP32 requests.
-- Use HTTPS or a trusted local network for terminal traffic.
-- Add request timestamps or nonces to limit replay.
-- Rate-limit invalid card and terminal requests.
-- Avoid returning more student information than the terminal needs.
+- Recharge limits (per recharge and per day) and a way to cancel a recharge.
+- A daily spending limit per student, since card UIDs can be cloned.
+- Unique payment references from `random_bytes()` instead of time + 4 digits.
+- A single shared payment function instead of four copies of the logic.
+- Run `tests/smoke_test.py` automatically on every push (GitHub Actions).
+- Nightly database backups, with restore instructions.
 
-## Phase 3 - improve operations
+## Later
 
-- Add a terminal health/status page.
-- Show clearer order ownership and recovery when a terminal disconnects.
-- Add an operator action to release a stuck `IN_PROGRESS` order.
-- Add structured correlation IDs for payment and device logs.
-- Add automated backups and restore instructions.
-
-## Phase 4 - user-facing improvements
-
-- Improve mobile and accessibility support.
-- Add searchable transaction exports.
-- Add configurable RESTO prices and terminal settings.
-- Add notifications for successful payments and low balances.
-
-## Out of scope until the core flow is stable
-
-- Offline payments.
-- Machine-learning fraud detection.
-- Cryptocurrency or multi-currency settlement.
-- Native mobile applications.
-
-These features require explicit threat modeling, accounting rules and recovery
-design before implementation.
+- A terminal status page, and an admin action to release a stuck `IN_PROGRESS` order.
+- Transaction export for students and admins.
+- Low-balance notifications.

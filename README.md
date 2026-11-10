@@ -1,89 +1,94 @@
 # UniSmart Pay
 
-UniSmart Pay is a university payment platform built with PHP, PDO and MySQL.
-It includes a student portal, a cafeteria workflow and an optional ESP32 RFID
-payment terminal.
+UniSmart Pay is a university payment platform built with PHP 8.2, PDO and MySQL.
+Students pay at the restaurant and the cafeteria with an RFID card, read by an
+ESP32 terminal with an RC522 reader.
 
 Demo video: https://youtu.be/cDfxOyyTLME
 
-## What is included
+## Features
 
-- Student login, balance and transaction history.
-- Cafeteria barcode scanning, cart management and checkout.
-- RFID terminal support with an ESP32 and RC522 reader.
-- RESTO mode with a fixed ticket price.
-- BUVETTE mode for paying a web-created pending order.
-- Terminal and payment logs stored in `code_appareil`.
+- **Student portal:** balance, transaction history, card status, and web payment
+  for a restaurant ticket or a cafeteria cart.
+- **Administration:** create students, assign RFID cards, recharge accounts and
+  manage products. Faculty admins only see their own faculty's students.
+- **RESTO mode:** the terminal charges a fixed ticket price when a card is presented.
+- **BUVETTE (cafeteria) mode:** the cashier scans products in the browser to
+  create an order, and the student pays it by presenting their card.
+- **Terminal logs:** terminal activity is stored in `code_appareil` and shown
+  on the terminal pages.
 
-## Quick start
-
-Requirements:
-
-- XAMPP with Apache and MySQL.
-- PHP 8.x recommended.
-- A modern browser.
-
-1. Copy the project to `C:\xampp\htdocs\UniSmartPay`.
-2. Start Apache and MySQL in XAMPP.
-3. Import `database/unismart_pay_schema.sql` with phpMyAdmin.
-4. Open `http://localhost/UniSmartPay/web/`.
-
-The default database settings are in `web/config/config.php`. The demo
-accounts are documented in [`DATABASE-SETUP.md`](DATABASE-SETUP.md); change
-them before using the application outside development.
-
-## Docker development
-
-Docker is an alternative to XAMPP:
+## Quick start (Docker)
 
 ```bash
 cp .env.example .env
-docker compose up --build
+docker compose up -d --build
 ```
 
-Open `http://localhost:8080/UniSmartPay/web/`. Optional phpMyAdmin is available
-with:
+The database is created from `database/unismart_pay_schema.sql` on first start.
+It contains one test student (`TEST/RFID/0001` / `Etudiant@1234`) but **no admins
+and no terminals**. Create them inside the container:
 
 ```bash
-docker compose --profile tools up --build
+docker compose exec -it app php /opt/unismartpay/scripts/create_admin.php admin@example.com Nom Prenom super_admin
+docker compose exec app php /opt/unismartpay/scripts/create_terminal.php "Terminal Resto" RESTO 1
+docker compose exec app php /opt/unismartpay/scripts/create_terminal.php "Terminal Buvette" BUVETTE 1
 ```
 
-Then open `http://localhost:8081`. The MySQL data is stored in the
-`unismart_pay_db_data` Docker volume. To recreate the database from the SQL
-seed, stop the stack and remove that volume:
+In Git Bash on Windows, run `export MSYS_NO_PATHCONV=1` first. Each terminal
+token is printed once: save it for the ESP32 firmware.
 
-```bash
-docker compose down -v
-```
+Open `http://localhost:8080/UniSmartPay/web/`.
 
-The Docker credentials are for local development only. Keep `.env` private.
+| Page | URL |
+|---|---|
+| Student portal | `/UniSmartPay/web/etudiant/login.php` |
+| Administration | `/UniSmartPay/web/admin/login.php` |
+| RESTO terminal | `/UniSmartPay/web/terminal/resto.php` |
+| BUVETTE terminal | `/UniSmartPay/web/terminal/buvette.php` |
+
+To start phpMyAdmin as well, use `docker compose --profile tools up -d` and
+open `http://localhost:8081`. To reset the database to the seed data, run
+`docker compose down -v`, then start again.
+
+To run without Docker (XAMPP), see [`web/INSTALLATION.md`](web/INSTALLATION.md).
 
 ## ESP32 terminal
 
-Use [`esp32/unismart_pay_terminal.ino`](esp32/unismart_pay_terminal.ino).
-The terminal reads a card UID, checks it through the PHP API, and then performs
-the appropriate payment flow. The computer and ESP32 must be on the same
-network. Configure `SERVER_URL` with the computer's LAN address, never
-`localhost`. Configure `TERMINAL_TOKEN` with the credential assigned to that
-terminal.
+The firmware is [`esp32/unismart_pay_terminal.ino`](esp32/unismart_pay_terminal.ino).
+It reads a card, checks it with the server, then pays the restaurant ticket or
+the waiting cafeteria order, depending on the terminal's mode. Wiring and
+configuration are in [`esp32/SETUP_GUIDE.md`](esp32/SETUP_GUIDE.md).
 
-Read [`esp32/SETUP_GUIDE.md`](esp32/SETUP_GUIDE.md) before wiring or uploading.
+Terminal endpoints authenticate with an `X-Terminal-Token` header:
 
-## Main API routes
-
-| Purpose | Method and route |
+| Purpose | Route |
 |---|---|
 | Check a card | `POST /web/api/card_check.php` |
-| RESTO payment | `POST /web/api/payment.php` |
-| Claim a cafeteria order | `GET /web/api/terminal_order_claim.php?terminal_id=1` |
+| Pay a restaurant ticket | `POST /web/api/payment.php` |
+| Read the terminal mode | `GET /web/api/terminal_mode_get.php?terminal_id=1` |
+| Claim the waiting cafeteria order | `GET /web/api/terminal_order_claim.php?terminal_id=2` |
 | Pay a cafeteria order | `POST /web/api/terminal_order_pay.php` |
-| Read terminal mode | `GET /web/api/terminal_mode_get.php?terminal_id=1` |
 | Write a terminal log | `POST /web/api/terminal/log.php` |
+
+## Tests
+
+[`tests/smoke_test.py`](tests/smoke_test.py) checks the main payment flows and
+the security fixes against a running instance. It needs only Python 3 and acts
+as the terminal itself, so no ESP32 is required. See [`tests/README.md`](tests/README.md).
+
+## Security notes
+
+- Terminal tokens and admin passwords are never stored in plain text. They are
+  created with the scripts above.
+- The ESP32 currently talks to the server over plain HTTP. Only use it on a
+  trusted network until the firmware moves to HTTPS (see the ESP32 guide).
+- `.env` holds the database passwords. Keep it private.
 
 ## Documentation
 
-- [`web/INSTALLATION.md`](web/INSTALLATION.md) - web installation and testing.
-- [`DATABASE-SETUP.md`](DATABASE-SETUP.md) - database import and checks.
-- [`esp32/SETUP_GUIDE.md`](esp32/SETUP_GUIDE.md) - ESP32 wiring and setup.
-- [`SERIAL_MONITOR.md`](SERIAL_MONITOR.md) - logs and serial troubleshooting.
-- [`ROADMAP.md`](ROADMAP.md) - planned improvements.
+- [`web/INSTALLATION.md`](web/INSTALLATION.md): installation without Docker (XAMPP).
+- [`DATABASE-SETUP.md`](DATABASE-SETUP.md): schema, migrations, admins and terminals.
+- [`esp32/SETUP_GUIDE.md`](esp32/SETUP_GUIDE.md): ESP32 wiring, firmware and troubleshooting.
+- [`SERIAL_MONITOR.md`](SERIAL_MONITOR.md): terminal logs and serial debugging.
+- [`ROADMAP.md`](ROADMAP.md): known limitations and planned work.

@@ -1,98 +1,92 @@
-# Web application installation
+# Installation without Docker (XAMPP)
+
+Docker is the simplest setup (see the [README](../README.md)). Use this guide
+to run the app on XAMPP instead.
 
 ## Requirements
 
-- XAMPP with Apache and MySQL.
-- PHP 8.x recommended.
-- A current desktop browser.
+- XAMPP with Apache, PHP 8.2+ and MySQL/MariaDB.
+- Chrome or Edge on a desktop computer, for barcode scanning and Web Serial.
 
-Chrome or Edge is recommended for barcode camera access and Web Serial.
+## 1. Copy the project
 
-## Install locally
+Copy the repository to `C:\xampp\htdocs\UniSmartPay`. The app expects to be
+served at `/UniSmartPay/web/`.
 
-1. Copy the repository to `C:\xampp\htdocs\UniSmartPay`.
-2. Check database values in `web/config/config.php`.
-3. Import `database/unismart_pay_schema.sql`.
-4. Start Apache and MySQL in XAMPP.
-5. Open `http://localhost/UniSmartPay/web/`.
+## 2. Create the database and a MySQL user
 
-If Apache uses a port other than 80, include that port in every URL.
-
-## Docker alternative
-
-From the repository root:
+Import `database/unismart_pay_schema.sql` with phpMyAdmin (**Import** tab) or:
 
 ```bash
-cp .env.example .env
-docker compose up --build
+mysql -u root -p < database/unismart_pay_schema.sql
 ```
 
-Open `http://localhost:8080/UniSmartPay/web/`. To also start phpMyAdmin:
+The app refuses to start without a database password, so create a dedicated
+user instead of using XAMPP's passwordless `root`:
 
-```bash
-docker compose --profile tools up --build
+```sql
+CREATE USER 'unismart'@'localhost' IDENTIFIED BY 'choose-a-strong-password';
+GRANT ALL PRIVILEGES ON unismart_pay.* TO 'unismart'@'localhost';
 ```
 
-Open phpMyAdmin at `http://localhost:8081`. Docker stores MySQL data in a
-persistent volume. `docker compose down` keeps the data; `docker compose down
--v` deletes it and causes the schema seed to run again on the next start.
+## 3. Configure Apache
 
-## Main pages
+The database settings come from environment variables. Add them to
+`C:\xampp\apache\conf\httpd.conf`, then restart Apache:
 
-| Page | URL |
+```apache
+SetEnv UNISMARTPAY_DB_USER unismart
+SetEnv UNISMARTPAY_DB_PASS choose-a-strong-password
+SetEnv UNISMARTPAY_DB_PORT 3306
+```
+
+| Variable | Default |
 |---|---|
-| Home | `/UniSmartPay/web/` |
-| Administration | `/UniSmartPay/web/admin/login.php` |
-| Student portal | `/UniSmartPay/web/etudiant/login.php` |
-| RESTO terminal | `/UniSmartPay/web/terminal/resto.php` |
-| BUVETTE terminal | `/UniSmartPay/web/terminal/buvette.php` |
+| `UNISMARTPAY_DB_HOST` | `127.0.0.1` |
+| `UNISMARTPAY_DB_PORT` | `3307` (XAMPP uses `3306`) |
+| `UNISMARTPAY_DB_NAME` | `unismart_pay` |
+| `UNISMARTPAY_DB_USER`, `UNISMARTPAY_DB_PASS` | none; both are required |
+| `UNISMARTPAY_APP_ENV` | `prod`; set `dev` to see error details |
+| `UNISMARTPAY_FORCE_HTTPS` | off; `1` redirects to HTTPS and sends HSTS |
 
-The SQL seed credentials are for development only. Change them before
-deployment.
+Do not put these values in `web/.htaccess`: that file is committed to the repository.
 
-## Functional smoke test
+## 4. Create an admin and the terminals
 
-1. Log in to the administration area.
-2. Confirm that a student, account and active RFID card exist.
-3. Confirm that the card UID matches the UID printed by the ESP32.
-4. Check the student balance.
-5. In RESTO mode, present the card and verify the fixed-price debit.
-6. In BUVETTE mode, create a web order, present the card and verify that the
-   order changes from pending to paid.
-7. Check the terminal logs and transaction history.
+The scripts read the same variables, so set them in the shell first
+(PowerShell shown):
 
-## ESP32 network setup
-
-When the ESP32 accesses Docker from another device, use the computer's LAN IP
-and the published application port:
-
-```text
-http://192.168.1.25:8080/UniSmartPay/web/api/payment.php
+```powershell
+$env:UNISMARTPAY_DB_USER = "unismart"
+$env:UNISMARTPAY_DB_PASS = "choose-a-strong-password"
+$env:UNISMARTPAY_DB_PORT = "3306"
+php scripts/create_admin.php admin@example.com Nom Prenom super_admin
+php scripts/create_terminal.php "Terminal Resto" RESTO 1
+php scripts/create_terminal.php "Terminal Buvette" BUVETTE 1
 ```
 
-`localhost` works only from the computer itself. If requests time out, check
-Apache, the Windows firewall and whether both devices use the same network.
+More details are in [`../DATABASE-SETUP.md`](../DATABASE-SETUP.md).
 
-## Security checklist
+## 5. Open the app
 
-- Remove or change all demo accounts.
-- Use a non-empty database password.
-- Use HTTPS outside local development.
-- Do not commit Wi-Fi credentials or database secrets.
-- Restrict MySQL and terminal API access to trusted networks.
-- Keep server-side validation and CSRF protection enabled.
+Open `http://localhost/UniSmartPay/web/`. If Apache does not use port 80,
+include the port in every URL.
+
+## Manual check
+
+1. Log in as the admin, and assign a card to the test student if needed.
+2. On the RESTO terminal page, present the card and check the ticket price is debited.
+3. On the BUVETTE terminal page, scan a product, present the card, and check
+   the order becomes paid.
+4. Check the student's transaction history and the terminal logs.
 
 ## Troubleshooting
 
-**Database connection error:** verify MySQL is running, the database exists and
-`web/config/config.php` matches the server.
+| Symptom | Check |
+|---|---|
+| "Server configuration error." | `UNISMARTPAY_DB_USER` and `UNISMARTPAY_DB_PASS` are set, and Apache was restarted. |
+| Database connection error | MySQL is running, the port is right (`3306` on XAMPP), and the user can access `unismart_pay`. |
+| Card not found | The card is assigned to a student, active, and its UID matches what the ESP32 prints. |
+| Camera unavailable | Use HTTPS, or `http://localhost` on the same computer. |
 
-**RFID card not found:** assign the UID to a student, activate the card and
-check the UID format.
-
-**Camera unavailable:** use HTTPS or `http://localhost` on a desktop browser.
-
-**Session error:** allow cookies and check PHP's session directory and Apache
-error log.
-
-See [`../SERIAL_MONITOR.md`](../SERIAL_MONITOR.md) for terminal diagnostics.
+Terminal and network issues are covered in [`../SERIAL_MONITOR.md`](../SERIAL_MONITOR.md).

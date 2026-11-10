@@ -73,6 +73,7 @@ try {
 
     // Compute total based on DB prices (no stock reservation here)
     $total = 0.0;
+    $prices = [];
     $stmtP = $pdo->prepare('SELECT id_produit, prix, actif FROM produits WHERE id_produit = :id LIMIT 1');
     foreach ($normalized as $idProduit => $quantite) {
         $stmtP->execute([':id' => $idProduit]);
@@ -81,6 +82,7 @@ try {
             throw new UserFacingException('Produit introuvable');
         }
         $prix = (float)$p['prix'];
+        $prices[$idProduit] = $prix;
         $total += $prix * $quantite;
     }
 
@@ -89,7 +91,7 @@ try {
     }
 
     $itemsJson = json_encode(array_map(
-        fn ($id) => ['id_produit' => (int)$id, 'quantite' => (int)$normalized[$id]],
+        fn ($id) => ['id_produit' => (int)$id, 'quantite' => (int)$normalized[$id], 'prix_unitaire' => $prices[$id]],
         array_keys($normalized)
     ), JSON_UNESCAPED_UNICODE);
 

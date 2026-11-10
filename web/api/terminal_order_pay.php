@@ -33,6 +33,9 @@ if ($orderId <= 0 || $terminalId <= 0 || $uid === '' || $token === '') {
     exit();
 }
 
+// Card problems (unknown/inactive card, low balance) leave the order payable by another card.
+$cardError = false;
+
 try {
     $pdo = db();
     $pdo->beginTransaction();
@@ -87,9 +90,11 @@ try {
     $acc = $stmt->fetch();
 
     if (!$acc) {
+        $cardError = true;
         throw new UserFacingException('Carte introuvable');
     }
     if ((string)$acc['carte_statut'] !== 'active') {
+        $cardError = true;
         throw new UserFacingException('Carte non active');
     }
 
@@ -97,6 +102,7 @@ try {
 
     $soldeAvant = (float)$acc['solde'];
     if ($soldeAvant < $amount) {
+        $cardError = true;
         throw new UserFacingException('Solde insuffisant');
     }
 
@@ -108,12 +114,16 @@ try {
         }
 
         $normalized = [];
+        $prices = []; // unit prices frozen at order creation (absent on older orders)
         foreach ($items as $it) {
             if (!is_array($it)) continue;
             $idProduit = (int)($it['id_produit'] ?? 0);
             $quantite = (int)($it['quantite'] ?? 0);
             if ($idProduit <= 0 || $quantite <= 0) continue;
             $normalized[$idProduit] = ($normalized[$idProduit] ?? 0) + $quantite;
+            if (isset($it['prix_unitaire']) && is_numeric($it['prix_unitaire']) && (float)$it['prix_unitaire'] >= 0) {
+                $prices[$idProduit] = (float)$it['prix_unitaire'];
+            }
         }
         if (count($normalized) === 0) {
             throw new UserFacingException('Commande invalide (articles)');
@@ -165,16 +175,6 @@ try {
     ]);
 
     if ($mode === 'BUVETTE') {
-        $items = json_decode((string)($order['items_json'] ?? '[]'), true);
-        $normalized = [];
-        foreach ($items as $it) {
-            if (!is_array($it)) continue;
-            $idProduit = (int)($it['id_produit'] ?? 0);
-            $quantite = (int)($it['quantite'] ?? 0);
-            if ($idProduit <= 0 || $quantite <= 0) continue;
-            $normalized[$idProduit] = ($normalized[$idProduit] ?? 0) + $quantite;
-        }
-
         $stmtProd = $pdo->prepare('SELECT id_produit, prix, actif FROM produits WHERE id_produit = :id FOR UPDATE');
         $stmtDet = $pdo->prepare(
             'INSERT INTO detail_transfert_buvette (id_transfert, id_produit, quantite, prix_unitaire)
@@ -188,7 +188,7 @@ try {
             if (!$p || (int)$p['actif'] !== 1) {
                 throw new UserFacingException('Produit introuvable');
             }
-            $prix = (float)$p['prix'];
+            $prix = $prices[$idProduit] ?? (float)$p['prix'];
             $stmtDet->execute([
                 ':id_transfert' => $idTransfert,
                 ':id_produit' => (int)$idProduit,
@@ -256,11 +256,13 @@ try {
 
     $msg = $e instanceof UserFacingException ? $e->getMessage() : 'Erreur serveur';
 
-    // Mark order as failed (best-effort, outside transaction)
+    // Card errors: back to PENDING so another card can be tapped. Real order
+    // problems: ECHEC. Only touch an order still being paid (never a PAYE one).
     try {
         if (isset($pdo) && $pdo instanceof PDO && isset($orderId) && $orderId > 0) {
-            $pdo->prepare('UPDATE terminal_orders SET statut = "ECHEC", message_erreur = :msg WHERE id_order = :id')
-                ->execute([':msg' => $msg, ':id' => $orderId]);
+            $newStatut = $cardError ? 'PENDING' : 'ECHEC';
+            $pdo->prepare('UPDATE terminal_orders SET statut = :statut, message_erreur = :msg WHERE id_order = :id AND statut = "IN_PROGRESS"')
+                ->execute([':statut' => $newStatut, ':msg' => $msg, ':id' => $orderId]);
         }
     } catch (Throwable $_) {
     }

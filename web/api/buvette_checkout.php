@@ -58,11 +58,10 @@ try {
     $pdo = db();
     $pdo->beginTransaction();
 
-    // Lock account and card
+    // Lock account
     $stmt = $pdo->prepare(
-        'SELECT c.id_compte, c.solde, ca.statut AS carte_statut
+        'SELECT c.id_compte, c.solde
          FROM comptes c
-         LEFT JOIN cartes ca ON ca.id_etudiant = c.id_etudiant
          WHERE c.id_etudiant = :id
          FOR UPDATE'
     );
@@ -73,7 +72,12 @@ try {
         throw new UserFacingException('Compte introuvable');
     }
 
-    if (!empty($account['carte_statut']) && $account['carte_statut'] !== 'active') {
+    // Lock the student's card: exactly one card, and it must be active
+    $stmtCarte = $pdo->prepare('SELECT statut FROM cartes WHERE id_etudiant = :id FOR UPDATE');
+    $stmtCarte->execute([':id' => $etudiantId]);
+    $cartes = $stmtCarte->fetchAll();
+
+    if (count($cartes) !== 1 || $cartes[0]['statut'] !== 'active') {
         throw new UserFacingException('Carte non active');
     }
 

@@ -230,8 +230,17 @@ function login_record_failure(string $typeUser, string $identifier): void {
         ]);
 }
 
+// Payment reference, e.g. 20261110143005-9F3A61C2: readable timestamp plus
+// 32 random bits, so two payments in the same second don't collide.
 function generate_reference(): string {
-    return date('YmdHis') . random_int(1000, 9999);
+    return date('YmdHis') . '-' . strtoupper(bin2hex(random_bytes(4)));
+}
+
+// Current restaurant ticket price in millimes (0 when not configured).
+function resto_ticket_price(PDO $pdo): int {
+    $price = $pdo->query('SELECT prix_ticket FROM config_resto WHERE actif = 1 ORDER BY updated_at DESC LIMIT 1')
+        ->fetchColumn();
+    return $price === false ? 0 : money_to_millimes($price);
 }
 
 // ---------------------------------------------------------------- money

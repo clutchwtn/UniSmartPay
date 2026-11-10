@@ -234,6 +234,10 @@ def functional():
             check("func", "resto payment debits the right amount",
                   abs(float(body["solde_apres"]) - (before - RESTO_PRICE)) < 0.001,
                   f"before={before} after={body['solde_apres']}")
+        if ok:
+            ref = str(body.get("reference", ""))
+            check("func", "payment reference is timestamp + random part",
+                  re.fullmatch(r"\d{14}-[0-9A-F]{8}", ref) is not None, f"reference={ref!r}")
         admin, logged = login_admin()
         if ok and logged:
             check("func", "admin recharge (restores test balance)", admin_recharge(admin, STUDENT_MAT, RESTO_PRICE))
@@ -374,6 +378,36 @@ def security(include_lockout):
         check("sec", "#11 student without a card cannot pay", r.json().get("ok") is not True,
               f"card-less student {mat} paid")
 
+    def p1_server_price():
+        _, before = card_balance()
+        r = Client().post(BASE + "/api/payment.php",
+                          data={"card_uid": CARD_UID, "amount": 50, "terminal_id": RESTO_TERMINAL},
+                          headers=terminal(RESTO_TOKEN))
+        body = r.json()
+        if body.get("success") is True:
+            charged = round(before - float(body["solde_apres"]), 3) if before is not None else None
+            admin, ok = login_admin()
+            if ok and charged:
+                admin_recharge(admin, STUDENT_MAT, charged)  # restore the test balance
+            check("sec", "P1  terminal cannot choose the resto price", charged == RESTO_PRICE,
+                  f"asked 50, charged {charged}")
+        else:
+            check("sec", "P1  terminal cannot choose the resto price", False, f"payment failed: {r.text[:120]}")
+
+    def p2_buvette_terminal_resto():
+        r = Client().post(BASE + "/api/payment.php",
+                          data={"card_uid": CARD_UID, "amount": 1, "terminal_id": BUVETTE_TERMINAL},
+                          headers=terminal(BUVETTE_TOKEN))
+        check("sec", "P2  cafe terminal cannot charge through payment.php", r.json().get("success") is not True,
+              "a BUVETTE terminal charged a resto payment")
+
+    def p3_removed_endpoints():
+        # Missing URLs fall back to the home page (web/.htaccess), so check that
+        # no JSON API answers there anymore rather than expecting a 404.
+        served = [p for p in ("terminal/paiement.php", "terminal/solde.php")
+                  if "json" in (Client().post(BASE + "/api/" + p, data={}).headers or {}).get("Content-Type", "")]
+        check("sec", "P3  unused terminal endpoints are removed", not served, f"still served: {served}")
+
     def s9_lockout():
         c = Client()
         for _ in range(6):
@@ -384,7 +418,8 @@ def security(include_lockout):
         check("sec", "#9  login locks after repeated failures", not ok,
               "6 bad passwords, then correct one still logged in")
 
-    checks = [s1_seed_token, s1_seed_admin, s2_logs, s3_anon_order, s4_files, s6_cookie, s7_status, s11_no_card]
+    checks = [s1_seed_token, s1_seed_admin, s2_logs, s3_anon_order, s4_files, s6_cookie, s7_status, s11_no_card,
+              p1_server_price, p2_buvette_terminal_resto, p3_removed_endpoints]
     for fn in checks:
         guarded("sec", fn.__name__, fn)
     if include_lockout:

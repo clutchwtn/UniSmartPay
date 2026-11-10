@@ -47,8 +47,9 @@ const float AMOUNT_RESTO = 3.50;
   Docker, none with XAMPP on port 80. The other endpoints are derived from this URL.
 - **`TERMINAL_TOKEN` and `TERMINAL_ID`:** the token printed by
   `scripts/create_terminal.php`, and the id of that same terminal.
-- **`AMOUNT_RESTO`:** the ticket price the terminal charges. Keep it equal to
-  the price in the `config_resto` table.
+- **`AMOUNT_RESTO`:** only used for the terminal's own messages. The server
+  always charges the price in the `config_resto` table, whatever the terminal
+  sends, so keep the two equal to avoid confusing logs.
 
 Don't commit real Wi-Fi credentials or tokens.
 
@@ -58,7 +59,8 @@ One ESP32 serves both modes. The mode is stored on the server: opening the
 RESTO or BUVETTE terminal page in the browser switches terminal 1 to that mode,
 and the ESP32 reads it before each payment.
 
-- **RESTO:** a card is presented → the terminal checks the card → charges `AMOUNT_RESTO`.
+- **RESTO:** a card is presented → the terminal checks the card → the server
+  charges the configured ticket price.
 - **BUVETTE:** the cashier scans products on the BUVETTE page and starts the
   payment → a card is presented → the terminal claims that waiting order and pays it.
 - Green LED: payment accepted. Red LED: rejected or error.

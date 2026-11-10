@@ -1,6 +1,8 @@
 <?php
-// Legacy/compat endpoint for ESP32 sketch: /web/api/payment.php
-// Expected JSON: {"card_uid":"...","amount":5.50,"terminal_id":1}
+// Restaurant ticket payment from a RESTO terminal (ESP32).
+// Expected JSON: {"card_uid":"...","terminal_id":1}
+// The price always comes from config_resto. An "amount" sent by the terminal
+// is ignored, so a terminal (or a stolen token) cannot choose what to charge.
 
 declare(strict_types=1);
 
@@ -23,11 +25,11 @@ if (!is_array($payload)) {
 }
 
 $uid = strtoupper(trim((string)($payload['card_uid'] ?? '')));
-$amount = money_parse($payload['amount'] ?? null) ?? 0; // millimes
+$amount = 0; // millimes, set from config_resto below
 $terminalId = (int)($payload['terminal_id'] ?? 0);
 $token = terminal_token();
 
-if ($uid === '' || $amount <= 0 || $terminalId <= 0 || $token === '') {
+if ($uid === '' || $terminalId <= 0 || $token === '') {
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => 'Paramètres invalides']);
     exit();
@@ -38,6 +40,14 @@ try {
     $pdo->beginTransaction();
 
     $terminal = require_terminal($pdo, $token, $terminalId, true);
+
+    if ((string)$terminal['type'] !== 'RESTO') {
+        throw new UserFacingException('Terminal non configuré pour le resto');
+    }
+    $amount = resto_ticket_price($pdo);
+    if ($amount <= 0) {
+        throw new UserFacingException('Configuration resto indisponible');
+    }
 
     // Find card/account
     $cands = uid_candidates($uid);
@@ -68,7 +78,7 @@ try {
         throw new UserFacingException('Solde insuffisant');
     }
 
-    $type = ((string)$terminal['type'] === 'RESTO') ? 'PAIEMENT_RESTO' : 'PAIEMENT_BUVETTE';
+    $type = 'PAIEMENT_RESTO';
     $soldeApres = $soldeAvant - $amount;
     $reference = generate_reference();
 
@@ -82,7 +92,7 @@ try {
         ':montant' => millimes_to_db($amount),
         ':type' => $type,
         ':statut' => 'REUSSI',
-        ':description' => 'Paiement terminal (legacy endpoint)',
+        ':description' => 'Ticket resto (terminal)',
         ':reference' => $reference,
         ':solde_avant' => millimes_to_db($soldeAvant),
         ':solde_apres' => millimes_to_db($soldeApres),
@@ -125,6 +135,7 @@ try {
     echo json_encode([
         'success' => true,
         'reference' => $reference,
+        'montant' => millimes_to_dt($amount),
         'solde_apres' => millimes_to_dt($soldeApres),
         'etudiant' => [
             'id_etudiant' => (int)$row['id_etudiant'],
@@ -145,7 +156,7 @@ try {
                     ':id_terminal' => $terminalId,
                     ':type' => 'ERREUR',
                     ':msg' => 'Paiement KO: ' . ($e instanceof UserFacingException ? $e->getMessage() : 'Erreur serveur'),
-                    ':json' => json_encode(['amount' => $amount], JSON_UNESCAPED_UNICODE),
+                    ':json' => json_encode(['amount' => millimes_to_dt($amount)], JSON_UNESCAPED_UNICODE),
                     ':uid' => $uid,
                 ]);
         }

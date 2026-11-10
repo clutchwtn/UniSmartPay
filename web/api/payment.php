@@ -55,17 +55,17 @@ try {
     $row = $stmt->fetch();
 
     if (!$row) {
-        throw new RuntimeException('Carte introuvable');
+        throw new UserFacingException('Carte introuvable');
     }
     if ((string)$row['carte_statut'] !== 'active') {
-        throw new RuntimeException('Carte non active');
+        throw new UserFacingException('Carte non active');
     }
 
     $etudiantNom = trim((string)($row['prenom'] ?? '') . ' ' . (string)($row['nom'] ?? ''));
 
     $soldeAvant = (float)$row['solde'];
     if ($soldeAvant < $amount) {
-        throw new RuntimeException('Solde insuffisant');
+        throw new UserFacingException('Solde insuffisant');
     }
 
     $type = ((string)$terminal['type'] === 'RESTO') ? 'PAIEMENT_RESTO' : 'PAIEMENT_BUVETTE';
@@ -145,7 +145,7 @@ try {
                 ->execute([
                     ':id_terminal' => $terminalId,
                     ':type' => 'ERREUR',
-                    ':msg' => 'Paiement KO: ' . ($e instanceof RuntimeException ? $e->getMessage() : 'Erreur serveur'),
+                    ':msg' => 'Paiement KO: ' . ($e instanceof UserFacingException ? $e->getMessage() : 'Erreur serveur'),
                     ':json' => json_encode(['amount' => $amount], JSON_UNESCAPED_UNICODE),
                     ':uid' => $uid,
                 ]);
@@ -154,8 +154,8 @@ try {
         // ignore logging failure
     }
 
-    $msg = $e instanceof RuntimeException ? $e->getMessage() : 'Erreur serveur';
-    if (!($e instanceof RuntimeException)) {
+    $msg = $e instanceof UserFacingException ? $e->getMessage() : 'Erreur serveur';
+    if (!($e instanceof UserFacingException)) {
         error_log('payment.php error: ' . $e->getMessage());
     }
 

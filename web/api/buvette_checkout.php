@@ -70,11 +70,11 @@ try {
     $account = $stmt->fetch();
 
     if (!$account) {
-        throw new RuntimeException('Compte introuvable');
+        throw new UserFacingException('Compte introuvable');
     }
 
     if (!empty($account['carte_statut']) && $account['carte_statut'] !== 'active') {
-        throw new RuntimeException('Carte non active');
+        throw new UserFacingException('Carte non active');
     }
 
     $idCompte = (int)$account['id_compte'];
@@ -89,11 +89,11 @@ try {
         $stmtProd->execute([':id' => $idProduit]);
         $p = $stmtProd->fetch();
         if (!$p || (int)$p['actif'] !== 1) {
-            throw new RuntimeException('Produit introuvable');
+            throw new UserFacingException('Produit introuvable');
         }
         $stock = (int)$p['stock'];
         if ($stock < $quantite) {
-            throw new RuntimeException('Stock insuffisant: ' . (string)$p['nom']);
+            throw new UserFacingException('Stock insuffisant: ' . (string)$p['nom']);
         }
         $prix = (float)$p['prix'];
         $total += $prix * $quantite;
@@ -106,11 +106,11 @@ try {
     }
 
     if ($total <= 0) {
-        throw new RuntimeException('Montant invalide');
+        throw new UserFacingException('Montant invalide');
     }
 
     if ($soldeAvant < $total) {
-        throw new RuntimeException('Solde insuffisant');
+        throw new UserFacingException('Solde insuffisant');
     }
 
     $soldeApres = $soldeAvant - $total;
@@ -171,8 +171,8 @@ try {
         $pdo->rollBack();
     }
 
-    $msg = $e instanceof RuntimeException ? $e->getMessage() : 'Erreur serveur';
-    if (!($e instanceof RuntimeException)) {
+    $msg = $e instanceof UserFacingException ? $e->getMessage() : 'Erreur serveur';
+    if (!($e instanceof UserFacingException)) {
         error_log('buvette_checkout error: ' . $e->getMessage());
     }
 

@@ -51,21 +51,21 @@ try {
     $order = $stmtO->fetch();
 
     if (!$order) {
-        throw new RuntimeException('Commande introuvable');
+        throw new UserFacingException('Commande introuvable');
     }
 
     $statut = (string)$order['statut'];
     if ($statut === 'PAYE') {
-        throw new RuntimeException('Commande déjà payée');
+        throw new UserFacingException('Commande déjà payée');
     }
     if ($statut !== 'IN_PROGRESS') {
-        throw new RuntimeException('Commande non disponible');
+        throw new UserFacingException('Commande non disponible');
     }
 
     if (!empty($order['expires_at']) && strtotime((string)$order['expires_at']) < time()) {
         $pdo->prepare('UPDATE terminal_orders SET statut = "EXPIRE", message_erreur = "Expirée" WHERE id_order = :id')
             ->execute([':id' => $orderId]);
-        throw new RuntimeException('Commande expirée');
+        throw new UserFacingException('Commande expirée');
     }
 
     $mode = (string)$order['mode'];
@@ -87,24 +87,24 @@ try {
     $acc = $stmt->fetch();
 
     if (!$acc) {
-        throw new RuntimeException('Carte introuvable');
+        throw new UserFacingException('Carte introuvable');
     }
     if ((string)$acc['carte_statut'] !== 'active') {
-        throw new RuntimeException('Carte non active');
+        throw new UserFacingException('Carte non active');
     }
 
     $etudiantNom = trim((string)($acc['prenom'] ?? '') . ' ' . (string)($acc['nom'] ?? ''));
 
     $soldeAvant = (float)$acc['solde'];
     if ($soldeAvant < $amount) {
-        throw new RuntimeException('Solde insuffisant');
+        throw new UserFacingException('Solde insuffisant');
     }
 
     // For buvette: lock products + update stock + insert details
     if ($mode === 'BUVETTE') {
         $items = json_decode((string)($order['items_json'] ?? '[]'), true);
         if (!is_array($items) || count($items) === 0) {
-            throw new RuntimeException('Commande invalide (panier vide)');
+            throw new UserFacingException('Commande invalide (panier vide)');
         }
 
         $normalized = [];
@@ -116,7 +116,7 @@ try {
             $normalized[$idProduit] = ($normalized[$idProduit] ?? 0) + $quantite;
         }
         if (count($normalized) === 0) {
-            throw new RuntimeException('Commande invalide (articles)');
+            throw new UserFacingException('Commande invalide (articles)');
         }
 
         $stmtProd = $pdo->prepare('SELECT id_produit, nom, prix, stock, actif FROM produits WHERE id_produit = :id FOR UPDATE');
@@ -124,11 +124,11 @@ try {
             $stmtProd->execute([':id' => $idProduit]);
             $p = $stmtProd->fetch();
             if (!$p || (int)$p['actif'] !== 1) {
-                throw new RuntimeException('Produit introuvable');
+                throw new UserFacingException('Produit introuvable');
             }
             $stock = (int)$p['stock'];
             if ($stock < $quantite) {
-                throw new RuntimeException('Stock insuffisant: ' . (string)$p['nom']);
+                throw new UserFacingException('Stock insuffisant: ' . (string)$p['nom']);
             }
         }
 
@@ -186,7 +186,7 @@ try {
             $stmtProd->execute([':id' => $idProduit]);
             $p = $stmtProd->fetch();
             if (!$p || (int)$p['actif'] !== 1) {
-                throw new RuntimeException('Produit introuvable');
+                throw new UserFacingException('Produit introuvable');
             }
             $prix = (float)$p['prix'];
             $stmtDet->execute([
@@ -254,7 +254,7 @@ try {
         $pdo->rollBack();
     }
 
-    $msg = $e instanceof RuntimeException ? $e->getMessage() : 'Erreur serveur';
+    $msg = $e instanceof UserFacingException ? $e->getMessage() : 'Erreur serveur';
 
     // Mark order as failed (best-effort, outside transaction)
     try {
@@ -281,7 +281,7 @@ try {
     }
 
     http_response_code(400);
-    if (!($e instanceof RuntimeException)) {
+    if (!($e instanceof UserFacingException)) {
         error_log('terminal_order_pay error: ' . $e->getMessage());
     }
     echo json_encode(['ok' => false, 'success' => false, 'error' => $msg]);

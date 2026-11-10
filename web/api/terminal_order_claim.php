@@ -67,8 +67,8 @@ try {
     }
 
     http_response_code(400);
-    $msg = $e instanceof RuntimeException ? $e->getMessage() : 'Erreur serveur';
-    if (!($e instanceof RuntimeException)) {
+    $msg = $e instanceof UserFacingException ? $e->getMessage() : 'Erreur serveur';
+    if (!($e instanceof UserFacingException)) {
         error_log('terminal_order_claim error: ' . $e->getMessage());
     }
     echo json_encode(['ok' => false, 'error' => $msg]);

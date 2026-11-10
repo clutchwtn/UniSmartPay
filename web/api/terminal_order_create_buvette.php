@@ -65,10 +65,10 @@ try {
     $terminal = $stmtT->fetch();
 
     if (!$terminal || (string)$terminal['statut'] !== 'actif') {
-        throw new RuntimeException('Terminal invalide');
+        throw new UserFacingException('Terminal invalide');
     }
     if ((string)$terminal['type'] !== 'BUVETTE') {
-        throw new RuntimeException('Terminal non configuré pour la buvette');
+        throw new UserFacingException('Terminal non configuré pour la buvette');
     }
 
     // Compute total based on DB prices (no stock reservation here)
@@ -78,14 +78,14 @@ try {
         $stmtP->execute([':id' => $idProduit]);
         $p = $stmtP->fetch();
         if (!$p || (int)$p['actif'] !== 1) {
-            throw new RuntimeException('Produit introuvable');
+            throw new UserFacingException('Produit introuvable');
         }
         $prix = (float)$p['prix'];
         $total += $prix * $quantite;
     }
 
     if ($total <= 0) {
-        throw new RuntimeException('Montant invalide');
+        throw new UserFacingException('Montant invalide');
     }
 
     $itemsJson = json_encode(array_map(
@@ -128,8 +128,8 @@ try {
     }
 
     http_response_code(400);
-    $msg = $e instanceof RuntimeException ? $e->getMessage() : 'Erreur serveur';
-    if (!($e instanceof RuntimeException)) {
+    $msg = $e instanceof UserFacingException ? $e->getMessage() : 'Erreur serveur';
+    if (!($e instanceof UserFacingException)) {
         error_log('terminal_order_create_buvette error: ' . $e->getMessage());
     }
     echo json_encode(['ok' => false, 'error' => $msg]);

@@ -29,10 +29,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   try {
     if ($prixTicket <= 0) {
-      throw new RuntimeException('Configuration resto indisponible.');
+      throw new UserFacingException('Configuration resto indisponible.');
     }
     if ($idCompte <= 0) {
-      throw new RuntimeException('Compte introuvable.');
+      throw new UserFacingException('Compte introuvable.');
     }
 
     $reference = generate_reference();
@@ -43,11 +43,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $lock->execute([':id_compte' => $idCompte]);
     $row = $lock->fetch();
     if (!$row) {
-      throw new RuntimeException('Compte introuvable.');
+      throw new UserFacingException('Compte introuvable.');
     }
     $soldeAvant = (float)$row['solde'];
     if ($soldeAvant < $prixTicket) {
-      throw new RuntimeException('Solde insuffisant.');
+      throw new UserFacingException('Solde insuffisant.');
     }
 
     $soldeApres = $soldeAvant - $prixTicket;
@@ -76,7 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($pdo->inTransaction()) {
       $pdo->rollBack();
     }
-    $error = $e->getMessage();
+    $error = $e instanceof UserFacingException ? $e->getMessage() : 'Erreur serveur.';
     log_security($etudiantId, 'etudiant', 'PAIEMENT_RESTO', 'Echec ticket resto msg=' . $e->getMessage(), 'ECHEC');
   }
 }

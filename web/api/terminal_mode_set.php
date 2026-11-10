@@ -42,10 +42,10 @@ try {
     $t = $stmtT->fetch();
 
     if (!$t) {
-        throw new RuntimeException('Terminal introuvable');
+        throw new UserFacingException('Terminal introuvable');
     }
     if ((string)$t['statut'] !== 'actif') {
-        throw new RuntimeException('Terminal inactif');
+        throw new UserFacingException('Terminal inactif');
     }
 
     $pdo->prepare('UPDATE terminaux SET type = :type WHERE id_terminal = :id')
@@ -69,8 +69,8 @@ try {
     }
 
     http_response_code(400);
-    $msg = $e instanceof RuntimeException ? $e->getMessage() : 'Erreur serveur';
-    if (!($e instanceof RuntimeException)) {
+    $msg = $e instanceof UserFacingException ? $e->getMessage() : 'Erreur serveur';
+    if (!($e instanceof UserFacingException)) {
         error_log('terminal_mode_set error: ' . $e->getMessage());
     }
     echo json_encode(['ok' => false, 'error' => $msg]);

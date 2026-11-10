@@ -6,6 +6,7 @@ services:
       db:
         condition: service_healthy
     environment:
+      UNISMARTPAY_APP_ENV: dev
       UNISMARTPAY_DB_HOST: db
       UNISMARTPAY_DB_PORT: 3306
       UNISMARTPAY_DB_NAME: unismart_pay

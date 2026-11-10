@@ -53,10 +53,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $password = (string)($_POST['password'] ?? '');
 
             if ($idFaculte <= 0 || $matricule === '' || $nom === '' || $prenom === '' || $email === '' || $password === '') {
-                throw new RuntimeException('Veuillez remplir tous les champs (faculté incluse).');
+                throw new UserFacingException('Veuillez remplir tous les champs (faculté incluse).');
             }
             if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                throw new RuntimeException('Email invalide.');
+                throw new UserFacingException('Email invalide.');
             }
 
             $pdo->beginTransaction();
@@ -85,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $matricule = trim((string)($_POST['matricule'] ?? ''));
             $uid = strtoupper(trim((string)($_POST['uid_rfid'] ?? '')));
             if ($matricule === '' || $uid === '') {
-                throw new RuntimeException('Matricule et UID requis.');
+                throw new UserFacingException('Matricule et UID requis.');
             }
 
             [$constraintSql, $constraintParams] = admin_faculte_constraint_sql('e', $adminFaculteId, $adminRole);
@@ -95,7 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute(array_merge([':matricule' => $matricule], $constraintParams));
             $etu = $stmt->fetch();
             if (!$etu) {
-                throw new RuntimeException('Étudiant introuvable (ou hors de votre faculté).');
+                throw new UserFacingException('Étudiant introuvable (ou hors de votre faculté).');
             }
             $etudiantId = (int)$etu['id_etudiant'];
 
@@ -103,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare('SELECT id_etudiant FROM cartes WHERE uid_rfid = :uid AND id_etudiant <> :id_etudiant LIMIT 1');
             $stmt->execute([':uid' => $uid, ':id_etudiant' => $etudiantId]);
             if ($stmt->fetch()) {
-                throw new RuntimeException('Cet UID est déjà assigné à un autre étudiant.');
+                throw new UserFacingException('Cet UID est déjà assigné à un autre étudiant.');
             }
 
             // Upsert card for student
@@ -134,7 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $note = trim((string)($_POST['note'] ?? ''));
 
             if ($matricule === '' || $montant <= 0) {
-                throw new RuntimeException('Matricule et montant (> 0) requis.');
+                throw new UserFacingException('Matricule et montant (> 0) requis.');
             }
             if (!in_array($methode, ['ESPECES', 'CARTE_BANCAIRE', 'VIREMENT', 'AUTRE'], true)) {
                 $methode = 'ESPECES';
@@ -151,7 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute(array_merge([':matricule' => $matricule], $constraintParams));
             $row = $stmt->fetch();
             if (!$row) {
-                throw new RuntimeException('Étudiant introuvable (ou hors de votre faculté).');
+                throw new UserFacingException('Étudiant introuvable (ou hors de votre faculté).');
             }
             $idCompte = (int)$row['id_compte'];
 
@@ -163,7 +163,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([':id_compte' => $idCompte]);
             $acc = $stmt->fetch();
             if (!$acc) {
-                throw new RuntimeException('Compte introuvable.');
+                throw new UserFacingException('Compte introuvable.');
             }
             $soldeAvant = (float)$acc['solde'];
             $soldeApres = $soldeAvant + $montant;
@@ -206,18 +206,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stock = (int)($_POST['stock'] ?? 0);
 
           if ($nom === '' || $prix <= 0) {
-            throw new RuntimeException('Nom et prix (> 0) requis.');
+            throw new UserFacingException('Nom et prix (> 0) requis.');
           }
 
           // For the scan flow, the barcode must exist in DB.
           if ($codeBarre === '') {
-            throw new RuntimeException('Code-barres requis (pour le scan).');
+            throw new UserFacingException('Code-barres requis (pour le scan).');
           }
 
           // Normalize barcode (remove spaces/hyphens and keep alnum only)
           $codeBarre = strtoupper(preg_replace('/[^0-9A-Za-z]/', '', $codeBarre) ?? '');
           if ($codeBarre === '' || strlen($codeBarre) > 60) {
-            throw new RuntimeException('Code-barres invalide.');
+            throw new UserFacingException('Code-barres invalide.');
             }
 
           try {
@@ -234,7 +234,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           } catch (PDOException $e) {
             // Duplicate barcode (unique index)
             if (($e->getCode() === '23000') || str_contains($e->getMessage(), 'Duplicate')) {
-              throw new RuntimeException('Ce code-barres existe déjà.');
+              throw new UserFacingException('Ce code-barres existe déjà.');
             }
             throw $e;
           }
@@ -246,7 +246,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
-        $error = $e->getMessage();
+        $error = $e instanceof UserFacingException ? $e->getMessage() : 'Erreur serveur.';
         log_security($adminId, 'admin', 'ADMIN_ACTION', 'Erreur action=' . ($action ?: 'unknown') . ' msg=' . $e->getMessage(), 'ECHEC');
     }
 }

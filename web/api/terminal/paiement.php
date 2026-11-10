@@ -40,7 +40,7 @@ try {
     $term = $stmtT->fetch();
 
     if (!$term || (string)$term['statut'] !== 'actif') {
-        throw new RuntimeException('Terminal non autorisé');
+        throw new UserFacingException('Terminal non autorisé');
     }
 
     $idTerminal = (int)$term['id_terminal'];
@@ -59,15 +59,15 @@ try {
     $row = $stmt->fetch();
 
     if (!$row) {
-        throw new RuntimeException('Carte introuvable');
+        throw new UserFacingException('Carte introuvable');
     }
     if ((string)$row['carte_statut'] !== 'active') {
-        throw new RuntimeException('Carte non active');
+        throw new UserFacingException('Carte non active');
     }
 
     $soldeAvant = (float)$row['solde'];
     if ($soldeAvant < $montant) {
-        throw new RuntimeException('Solde insuffisant');
+        throw new UserFacingException('Solde insuffisant');
     }
 
     $soldeApres = $soldeAvant - $montant;
@@ -115,8 +115,8 @@ try {
         $pdo->rollBack();
     }
 
-    $msg = $e instanceof RuntimeException ? $e->getMessage() : 'Erreur serveur';
-    if (!($e instanceof RuntimeException)) {
+    $msg = $e instanceof UserFacingException ? $e->getMessage() : 'Erreur serveur';
+    if (!($e instanceof UserFacingException)) {
         error_log('terminal/paiement.php error: ' . $e->getMessage());
     }
 

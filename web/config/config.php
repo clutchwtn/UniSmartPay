@@ -20,7 +20,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
 // Application
 define('APP_NAME', 'UniSmart Pay');
-define('APP_ENV', getenv('UNISMARTPAY_APP_ENV') ?: 'dev');
+define('APP_ENV', getenv('UNISMARTPAY_APP_ENV') ?: 'prod');
 
 // Security
 define('SESSION_KEY', 'unismart_pay_2026');
@@ -31,8 +31,22 @@ define('SESSION_DURATION', 3600); // One hour
 define('DB_HOST', getenv('UNISMARTPAY_DB_HOST') ?: '127.0.0.1');
 define('DB_PORT', getenv('UNISMARTPAY_DB_PORT') ?: '3307');
 define('DB_NAME', getenv('UNISMARTPAY_DB_NAME') ?: 'unismart_pay');
-define('DB_USER', getenv('UNISMARTPAY_DB_USER') ?: 'root');
-define('DB_PASS', getenv('UNISMARTPAY_DB_PASS') !== false ? (string)getenv('UNISMARTPAY_DB_PASS') : '');
+$dbUser = getenv('UNISMARTPAY_DB_USER');
+$dbPass = getenv('UNISMARTPAY_DB_PASS');
+if ($dbUser === false || $dbUser === '' || $dbPass === false || $dbPass === '') {
+    $msg = 'Configuration error: UNISMARTPAY_DB_USER and UNISMARTPAY_DB_PASS must be set.';
+    if (PHP_SAPI === 'cli') {
+        fwrite(STDERR, $msg . PHP_EOL);
+    } else {
+        error_log($msg);
+        http_response_code(500);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo 'Server configuration error.';
+    }
+    exit(1);
+}
+define('DB_USER', $dbUser);
+define('DB_PASS', $dbPass);
 define('DB_CHARSET', 'utf8mb4');
 
 // URLs

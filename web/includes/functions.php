@@ -5,6 +5,13 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../config/database.php';
 
+/**
+ * An exception whose message was written on purpose for the end user.
+ * Handlers may return its message as-is; any other Throwable (PDO, etc.)
+ * must be logged and answered with a generic error.
+ */
+class UserFacingException extends RuntimeException {}
+
 function csrf_token(): string {
     if (empty($_SESSION[CSRF_SESSION_KEY])) {
         $_SESSION[CSRF_SESSION_KEY] = bin2hex(random_bytes(32));

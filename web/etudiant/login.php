@@ -32,6 +32,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 log_security(null, 'etudiant', 'LOGIN', 'Echec login matricule=' . $matricule, 'ECHEC');
                 login_record_failure('etudiant', $matricule);
             } else {
+                upgrade_password_hash($pdo, 'etudiants', 'id_etudiant', (int)$etu['id_etudiant'], $password, (string)$etu['password_hash']);
+
                 session_regenerate_id(true);
                 $_SESSION['etudiant_id'] = (int)$etu['id_etudiant'];
                 $_SESSION['etudiant_matricule'] = (string)$etu['matricule'];

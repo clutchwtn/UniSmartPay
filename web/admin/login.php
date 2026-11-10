@@ -32,6 +32,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 log_security(null, 'admin', 'LOGIN', 'Echec login admin email=' . $email, 'ECHEC');
                 login_record_failure('admin', $email);
             } else {
+                upgrade_password_hash($pdo, 'admins', 'id_admin', (int)$admin['id_admin'], $password, (string)$admin['password_hash']);
+
                 session_regenerate_id(true);
                 $_SESSION['admin_id'] = (int)$admin['id_admin'];
                 $_SESSION['admin_role'] = (string)$admin['role'];

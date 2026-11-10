@@ -102,6 +102,22 @@ function verify_password(string $plainPassword, string $storedHash): bool {
     return false;
 }
 
+// Called after a successful login: re-hash legacy (SHA-256) or outdated hashes with password_hash().
+// $table and $idColumn are code constants, never user input.
+function upgrade_password_hash(PDO $pdo, string $table, string $idColumn, int $id, string $plainPassword, string $storedHash): void {
+    $storedHash = trim($storedHash);
+    $isModern = str_starts_with($storedHash, '$2y$') || str_starts_with($storedHash, '$argon2');
+    if ($isModern && !password_needs_rehash($storedHash, PASSWORD_DEFAULT)) {
+        return;
+    }
+
+    $stmt = $pdo->prepare("UPDATE {$table} SET password_hash = :hash WHERE {$idColumn} = :id");
+    $stmt->execute([
+        ':hash' => password_hash($plainPassword, PASSWORD_DEFAULT),
+        ':id' => $id,
+    ]);
+}
+
 function require_student_login(): void {
     if (empty($_SESSION['etudiant_id'])) {
         header('Location: ' . BASE_URL . '/etudiant/login.php');

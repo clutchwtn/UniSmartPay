@@ -19,13 +19,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         try {
             $pdo = db();
+            $locked = login_is_locked('admin', $email);
             $stmt = $pdo->prepare('SELECT id_admin, id_faculte, nom, prenom, email, password_hash, role, actif FROM admins WHERE email = :email LIMIT 1');
             $stmt->execute([':email' => $email]);
             $admin = $stmt->fetch();
 
-            if (!$admin || (int)$admin['actif'] !== 1 || !verify_password($password, (string)$admin['password_hash'])) {
+            if ($locked) {
+                $error = 'Trop de tentatives de connexion. Veuillez réessayer plus tard.';
+                log_security(null, 'admin', 'LOGIN_LOCKOUT', 'Connexion refusée, trop d echecs id=' . $email, 'ALERTE');
+            } elseif (!$admin || (int)$admin['actif'] !== 1 || !verify_password($password, (string)$admin['password_hash'])) {
                 $error = 'Email ou mot de passe incorrect.';
                 log_security(null, 'admin', 'LOGIN', 'Echec login admin email=' . $email, 'ECHEC');
+                login_record_failure('admin', $email);
             } else {
                 session_regenerate_id(true);
                 $_SESSION['admin_id'] = (int)$admin['id_admin'];

@@ -19,13 +19,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         try {
             $pdo = db();
+            $locked = login_is_locked('etudiant', $matricule);
             $stmt = $pdo->prepare('SELECT id_etudiant, matricule, nom, prenom, email, password_hash, actif FROM etudiants WHERE matricule = :matricule LIMIT 1');
             $stmt->execute([':matricule' => $matricule]);
             $etu = $stmt->fetch();
 
-            if (!$etu || (int)$etu['actif'] !== 1 || !verify_password($password, (string)$etu['password_hash'])) {
+            if ($locked) {
+                $error = 'Trop de tentatives de connexion. Veuillez réessayer plus tard.';
+                log_security(null, 'etudiant', 'LOGIN_LOCKOUT', 'Connexion refusée, trop d echecs id=' . $matricule, 'ALERTE');
+            } elseif (!$etu || (int)$etu['actif'] !== 1 || !verify_password($password, (string)$etu['password_hash'])) {
                 $error = 'Matricule ou mot de passe incorrect.';
                 log_security(null, 'etudiant', 'LOGIN', 'Echec login matricule=' . $matricule, 'ECHEC');
+                login_record_failure('etudiant', $matricule);
             } else {
                 session_regenerate_id(true);
                 $_SESSION['etudiant_id'] = (int)$etu['id_etudiant'];

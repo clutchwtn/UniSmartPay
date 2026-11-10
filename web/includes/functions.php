@@ -175,6 +175,41 @@ function log_security(?int $idUser, string $typeUser, string $action, string $de
     }
 }
 
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_WINDOW_SECONDS = 900; // 15 minutes
+
+function login_identifier(string $identifier): string {
+    return substr(strtolower(trim($identifier)), 0, 190);
+}
+
+// True when the account or the client IP has too many recent failed logins.
+function login_is_locked(string $typeUser, string $identifier): bool {
+    $stmt = db()->prepare(
+        'SELECT COALESCE(SUM(type_user = :type AND identifier = :ident), 0) AS by_account,
+                COALESCE(SUM(ip_address = :ip), 0) AS by_ip
+         FROM login_attempts
+         WHERE attempted_at > (NOW() - INTERVAL ' . LOGIN_WINDOW_SECONDS . ' SECOND)'
+    );
+    $stmt->execute([
+        ':type' => $typeUser,
+        ':ident' => login_identifier($identifier),
+        ':ip' => (string)($_SERVER['REMOTE_ADDR'] ?? ''),
+    ]);
+    $row = $stmt->fetch();
+    return (int)$row['by_account'] >= LOGIN_MAX_ATTEMPTS || (int)$row['by_ip'] >= LOGIN_MAX_ATTEMPTS;
+}
+
+function login_record_failure(string $typeUser, string $identifier): void {
+    $pdo = db();
+    $pdo->prepare('DELETE FROM login_attempts WHERE attempted_at < (NOW() - INTERVAL 1 DAY)')->execute();
+    $pdo->prepare('INSERT INTO login_attempts (type_user, identifier, ip_address) VALUES (:type, :ident, :ip)')
+        ->execute([
+            ':type' => $typeUser,
+            ':ident' => login_identifier($identifier),
+            ':ip' => (string)($_SERVER['REMOTE_ADDR'] ?? ''),
+        ]);
+}
+
 function generate_reference(): string {
     return date('YmdHis') . random_int(1000, 9999);
 }

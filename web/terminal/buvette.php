@@ -101,11 +101,12 @@ if ($terminalId <= 0) {
 
   async function postTerminalLog(type, message, data = null, uid = null) {
     try {
-      await fetch('<?php echo htmlspecialchars(BASE_URL); ?>/api/terminal/log.php', {
+      await fetch('<?php echo htmlspecialchars(BASE_URL); ?>/api/admin_terminal_log.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({
+          csrf_token: csrfToken,
           id_terminal: terminalId,
           type_message: String(type || 'INFO').toUpperCase(),
           message: String(message || ''),

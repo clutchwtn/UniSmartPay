@@ -6,6 +6,8 @@ require_once __DIR__ . '/../includes/functions.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
+require_admin_api();
+
 $orderId = (int)($_GET['order_id'] ?? 0);
 if ($orderId <= 0) {
     http_response_code(400);
@@ -15,9 +17,13 @@ if ($orderId <= 0) {
 
 try {
     $pdo = db();
+    // Non-super admins only see the orders they created.
+    $isSuper = ($_SESSION['admin_role'] ?? '') === 'super_admin';
 
-    $stmt = $pdo->prepare('SELECT id_order, id_terminal, mode, statut, montant, message_erreur, reference, id_transfert, expires_at, updated_at FROM terminal_orders WHERE id_order = :id LIMIT 1');
-    $stmt->execute([':id' => $orderId]);
+    $stmt = $pdo->prepare('SELECT id_order, id_terminal, mode, statut, montant, message_erreur, reference, id_transfert, expires_at, updated_at FROM terminal_orders WHERE id_order = :id'
+        . ($isSuper ? '' : ' AND created_by_admin = :admin')
+        . ' LIMIT 1');
+    $stmt->execute($isSuper ? [':id' => $orderId] : [':id' => $orderId, ':admin' => (int)$_SESSION['admin_id']]);
     $o = $stmt->fetch();
 
     if (!$o) {

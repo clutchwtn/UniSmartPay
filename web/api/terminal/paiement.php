@@ -22,7 +22,7 @@ if (!is_array($payload)) {
 
 $token = trim((string)($payload['token_auth'] ?? ($_SERVER['HTTP_X_TERMINAL_TOKEN'] ?? '')));
 $uid = strtoupper(trim((string)($payload['uid'] ?? $payload['card_uid'] ?? '')));
-$montant = (float)($payload['montant'] ?? $payload['amount'] ?? 0);
+$montant = money_parse($payload['montant'] ?? $payload['amount'] ?? null) ?? 0; // millimes
 $description = trim((string)($payload['description'] ?? 'Paiement terminal'));
 
 if ($token === '' || $uid === '' || $montant <= 0) {
@@ -65,7 +65,7 @@ try {
         throw new UserFacingException('Carte non active');
     }
 
-    $soldeAvant = (float)$row['solde'];
+    $soldeAvant = money_to_millimes($row['solde']);
     if ($soldeAvant < $montant) {
         throw new UserFacingException('Solde insuffisant');
     }
@@ -80,19 +80,18 @@ try {
     $stmtTr->execute([
         ':id_compte' => (int)$row['id_compte'],
         ':id_terminal' => $idTerminal,
-        ':montant' => $montant,
+        ':montant' => millimes_to_db($montant),
         ':type' => $type,
         ':statut' => 'REUSSI',
         ':description' => $description,
         ':reference' => $reference,
-        ':solde_avant' => $soldeAvant,
-        ':solde_apres' => $soldeApres,
+        ':solde_avant' => millimes_to_db($soldeAvant),
+        ':solde_apres' => millimes_to_db($soldeApres),
     ]);
 
-    $pdo->prepare('UPDATE comptes SET solde = :solde WHERE id_compte = :id')->execute([
-        ':solde' => $soldeApres,
-        ':id' => (int)$row['id_compte'],
-    ]);
+    if (!account_debit($pdo, (int)$row['id_compte'], $montant)) {
+        throw new UserFacingException('Solde insuffisant');
+    }
 
     $pdo->prepare('INSERT INTO code_appareil (id_terminal, type_message, message, uid_carte) VALUES (:id_terminal, :type, :msg, :uid)')
         ->execute([
@@ -107,8 +106,8 @@ try {
     echo json_encode([
         'ok' => true,
         'reference' => $reference,
-        'solde_avant' => $soldeAvant,
-        'solde_apres' => $soldeApres,
+        'solde_avant' => millimes_to_dt($soldeAvant),
+        'solde_apres' => millimes_to_dt($soldeApres),
     ]);
 } catch (Throwable $e) {
     if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {

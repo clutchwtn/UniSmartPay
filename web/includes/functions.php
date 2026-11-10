@@ -230,6 +230,59 @@ function generate_reference(): string {
     return date('YmdHis') . random_int(1000, 9999);
 }
 
+// ---------------------------------------------------------------- money
+// Balances and prices are DECIMAL(10,2). PHP does all arithmetic on integer
+// millimes (1 DT = 1000 millimes, so 12.34 DT = 12340) and writes the result
+// back as a 2-decimal string. Floats are never used for money.
+
+// Parses a decimal amount ("12.5", "12.34", 12.34) into millimes.
+// Returns null when the value is not a decimal with at most 2 decimals.
+function money_parse(mixed $value): ?int {
+    if (!is_scalar($value)) {
+        return null;
+    }
+    if (!preg_match('/^(-?)(\d{1,8})(?:\.(\d{1,2}))?$/', trim((string)$value), $m)) {
+        return null;
+    }
+    $cents = (isset($m[3]) && $m[3] !== '') ? (int)str_pad($m[3], 2, '0') : 0;
+    $millimes = ((int)$m[2] * 1000) + ($cents * 10);
+    return $m[1] === '-' ? -$millimes : $millimes;
+}
+
+// Same as money_parse() for values read from the database; throws when invalid.
+function money_to_millimes(mixed $value): int {
+    return money_parse($value) ?? throw new UnexpectedValueException('Montant invalide');
+}
+
+// Millimes -> float for JSON responses (ESP32 and web clients keep numeric fields).
+function millimes_to_dt(int $millimes): float {
+    return (float)$millimes / 1000;
+}
+
+// Millimes -> 2-decimal string for DECIMAL(10,2) columns, e.g. 12340 -> "12.34".
+function millimes_to_db(int $millimes): string {
+    if ($millimes % 10 !== 0) {
+        throw new UnexpectedValueException('Montant non représentable en centimes');
+    }
+    $sign = $millimes < 0 ? '-' : '';
+    $abs = abs($millimes);
+    return sprintf('%s%d.%02d', $sign, intdiv($abs, 1000), intdiv($abs % 1000, 10));
+}
+
+// Debits an account in SQL. The WHERE clause refuses to go below zero, and the
+// caller must already hold the row lock (SELECT ... FOR UPDATE).
+// Returns false when the balance was insufficient (no row changed).
+function account_debit(PDO $pdo, int $idCompte, int $millimes): bool {
+    $stmt = $pdo->prepare(
+        'UPDATE comptes
+         SET solde = solde - CAST(:debit AS DECIMAL(10,2))
+         WHERE id_compte = :id AND solde >= CAST(:min AS DECIMAL(10,2))'
+    );
+    $amount = millimes_to_db($millimes);
+    $stmt->execute([':debit' => $amount, ':min' => $amount, ':id' => $idCompte]);
+    return $stmt->rowCount() === 1;
+}
+
 function mask_uid(string $uid): string {
     // Example: AA:BB:CC:DD -> AA:BB:**:**
     $parts = explode(':', $uid);

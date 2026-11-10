@@ -23,7 +23,7 @@ if (!is_array($payload)) {
 }
 
 $uid = strtoupper(trim((string)($payload['card_uid'] ?? '')));
-$amount = (float)($payload['amount'] ?? 0);
+$amount = money_parse($payload['amount'] ?? null) ?? 0; // millimes
 $terminalId = (int)($payload['terminal_id'] ?? 0);
 $token = terminal_token();
 
@@ -63,7 +63,7 @@ try {
 
     $etudiantNom = trim((string)($row['prenom'] ?? '') . ' ' . (string)($row['nom'] ?? ''));
 
-    $soldeAvant = (float)$row['solde'];
+    $soldeAvant = money_to_millimes($row['solde']);
     if ($soldeAvant < $amount) {
         throw new UserFacingException('Solde insuffisant');
     }
@@ -79,19 +79,18 @@ try {
     $stmtTr->execute([
         ':id_compte' => (int)$row['id_compte'],
         ':id_terminal' => $terminalId,
-        ':montant' => $amount,
+        ':montant' => millimes_to_db($amount),
         ':type' => $type,
         ':statut' => 'REUSSI',
         ':description' => 'Paiement terminal (legacy endpoint)',
         ':reference' => $reference,
-        ':solde_avant' => $soldeAvant,
-        ':solde_apres' => $soldeApres,
+        ':solde_avant' => millimes_to_db($soldeAvant),
+        ':solde_apres' => millimes_to_db($soldeApres),
     ]);
 
-    $pdo->prepare('UPDATE comptes SET solde = :solde WHERE id_compte = :id')->execute([
-        ':solde' => $soldeApres,
-        ':id' => (int)$row['id_compte'],
-    ]);
+    if (!account_debit($pdo, (int)$row['id_compte'], $amount)) {
+        throw new UserFacingException('Solde insuffisant');
+    }
 
     // Device log
     $pdo->prepare('INSERT INTO code_appareil (id_terminal, type_message, message, uid_carte) VALUES (:id_terminal, :type, :msg, :uid)')
@@ -116,8 +115,8 @@ try {
         ->execute([
             ':id_terminal' => $terminalId,
             ':type' => 'SOLDE',
-            ':msg' => 'Nouveau solde : ' . number_format($soldeApres, 2, '.', '') . ' DT',
-            ':json' => json_encode(['solde_apres' => $soldeApres], JSON_UNESCAPED_UNICODE),
+            ':msg' => 'Nouveau solde : ' . millimes_to_db($soldeApres) . ' DT',
+            ':json' => json_encode(['solde_apres' => millimes_to_dt($soldeApres)], JSON_UNESCAPED_UNICODE),
             ':uid' => $uid,
         ]);
 
@@ -126,7 +125,7 @@ try {
     echo json_encode([
         'success' => true,
         'reference' => $reference,
-        'solde_apres' => $soldeApres,
+        'solde_apres' => millimes_to_dt($soldeApres),
         'etudiant' => [
             'id_etudiant' => (int)$row['id_etudiant'],
             'nom' => (string)($row['nom'] ?? ''),

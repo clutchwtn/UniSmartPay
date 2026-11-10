@@ -72,7 +72,7 @@ try {
     }
 
     // Compute total based on DB prices (no stock reservation here)
-    $total = 0.0;
+    $total = 0; // millimes
     $prices = [];
     $stmtP = $pdo->prepare('SELECT id_produit, prix, actif FROM produits WHERE id_produit = :id LIMIT 1');
     foreach ($normalized as $idProduit => $quantite) {
@@ -81,7 +81,7 @@ try {
         if (!$p || (int)$p['actif'] !== 1) {
             throw new UserFacingException('Produit introuvable');
         }
-        $prix = (float)$p['prix'];
+        $prix = money_to_millimes($p['prix']);
         $prices[$idProduit] = $prix;
         $total += $prix * $quantite;
     }
@@ -91,7 +91,7 @@ try {
     }
 
     $itemsJson = json_encode(array_map(
-        fn ($id) => ['id_produit' => (int)$id, 'quantite' => (int)$normalized[$id], 'prix_unitaire' => $prices[$id]],
+        fn ($id) => ['id_produit' => (int)$id, 'quantite' => (int)$normalized[$id], 'prix_unitaire' => millimes_to_dt($prices[$id])],
         array_keys($normalized)
     ), JSON_UNESCAPED_UNICODE);
 
@@ -109,7 +109,7 @@ try {
     );
     $stmt->execute([
         ':id_terminal' => $terminalId,
-        ':montant' => $total,
+        ':montant' => millimes_to_db($total),
         ':items_json' => $itemsJson,
         ':expires_at' => $expiresAt,
         ':created_by_admin' => (int)$_SESSION['admin_id'],
@@ -121,7 +121,7 @@ try {
     echo json_encode([
         'ok' => true,
         'order_id' => $orderId,
-        'montant' => $total,
+        'montant' => millimes_to_dt($total),
         'expires_at' => $expiresAt,
     ]);
 } catch (Throwable $e) {

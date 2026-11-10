@@ -82,10 +82,10 @@ try {
     }
 
     $idCompte = (int)$account['id_compte'];
-    $soldeAvant = (float)$account['solde'];
+    $soldeAvant = money_to_millimes($account['solde']);
 
-    // Lock products and compute total
-    $total = 0.0;
+    // Lock products and compute total (millimes)
+    $total = 0;
     $productDetails = []; // id_produit => [nom, prix, stock, quantite]
 
     $stmtProd = $pdo->prepare('SELECT id_produit, nom, prix, stock, actif FROM produits WHERE id_produit = :id FOR UPDATE');
@@ -99,7 +99,7 @@ try {
         if ($stock < $quantite) {
             throw new UserFacingException('Stock insuffisant: ' . (string)$p['nom']);
         }
-        $prix = (float)$p['prix'];
+        $prix = money_to_millimes($p['prix']);
         $total += $prix * $quantite;
         $productDetails[$idProduit] = [
             'nom' => (string)$p['nom'],
@@ -127,13 +127,13 @@ try {
     );
     $stmtTr->execute([
         ':id_compte' => $idCompte,
-        ':montant' => $total,
+        ':montant' => millimes_to_db($total),
         ':type' => 'PAIEMENT_BUVETTE',
         ':statut' => 'REUSSI',
         ':description' => 'Achat buvette (web scan)',
         ':reference' => $reference,
-        ':solde_avant' => $soldeAvant,
-        ':solde_apres' => $soldeApres,
+        ':solde_avant' => millimes_to_db($soldeAvant),
+        ':solde_apres' => millimes_to_db($soldeApres),
     ]);
 
     $idTransfert = (int)$pdo->lastInsertId();
@@ -150,25 +150,26 @@ try {
             ':id_transfert' => $idTransfert,
             ':id_produit' => (int)$idProduit,
             ':quantite' => (int)$d['quantite'],
-            ':prix_unitaire' => (float)$d['prix'],
+            ':prix_unitaire' => millimes_to_db($d['prix']),
         ]);
         $stmtUpdStock->execute([':qte' => (int)$d['quantite'], ':id' => (int)$idProduit]);
     }
 
-    // Update account balance
-    $stmtUpd = $pdo->prepare('UPDATE comptes SET solde = :solde WHERE id_compte = :id');
-    $stmtUpd->execute([':solde' => $soldeApres, ':id' => $idCompte]);
+    // Update account balance (SQL guard: never below zero)
+    if (!account_debit($pdo, $idCompte, $total)) {
+        throw new UserFacingException('Solde insuffisant');
+    }
 
     $pdo->commit();
 
-    log_security($etudiantId, 'etudiant', 'PAIEMENT_BUVETTE', 'Paiement buvette réussi ref=' . $reference . ' montant=' . number_format($total, 2, '.', ''), 'SUCCES');
+    log_security($etudiantId, 'etudiant', 'PAIEMENT_BUVETTE', 'Paiement buvette réussi ref=' . $reference . ' montant=' . millimes_to_db($total), 'SUCCES');
 
     echo json_encode([
         'ok' => true,
         'reference' => $reference,
-        'montant' => $total,
-        'solde_avant' => $soldeAvant,
-        'solde_apres' => $soldeApres,
+        'montant' => millimes_to_dt($total),
+        'solde_avant' => millimes_to_dt($soldeAvant),
+        'solde_apres' => millimes_to_dt($soldeApres),
     ]);
 } catch (Throwable $e) {
     if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {

@@ -14,14 +14,14 @@ $error = '';
 $cfgStmt = $pdo->prepare('SELECT prix_ticket, description FROM config_resto WHERE actif = 1 ORDER BY updated_at DESC LIMIT 1');
 $cfgStmt->execute();
 $cfg = $cfgStmt->fetch();
-$prixTicket = (float)($cfg['prix_ticket'] ?? 0.0);
+$prixTicket = isset($cfg['prix_ticket']) ? money_to_millimes($cfg['prix_ticket']) : 0; // millimes
 $descTicket = (string)($cfg['description'] ?? 'Ticket repas');
 
 $accStmt = $pdo->prepare('SELECT id_compte, solde FROM comptes WHERE id_etudiant = :id LIMIT 1');
 $accStmt->execute([':id' => $etudiantId]);
 $acc = $accStmt->fetch();
 $idCompte = (int)($acc['id_compte'] ?? 0);
-$soldeActuel = (float)($acc['solde'] ?? 0.0);
+$soldeActuel = isset($acc['solde']) ? money_to_millimes($acc['solde']) : 0;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $csrf = (string)($_POST['csrf_token'] ?? '');
@@ -45,33 +45,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$row) {
       throw new UserFacingException('Compte introuvable.');
     }
-    $soldeAvant = (float)$row['solde'];
+    $soldeAvant = money_to_millimes($row['solde']);
     if ($soldeAvant < $prixTicket) {
       throw new UserFacingException('Solde insuffisant.');
     }
 
     $soldeApres = $soldeAvant - $prixTicket;
 
-    $pdo->prepare('UPDATE comptes SET solde = :solde WHERE id_compte = :id_compte')
-      ->execute([':solde' => $soldeApres, ':id_compte' => $idCompte]);
+    if (!account_debit($pdo, $idCompte, $prixTicket)) {
+      throw new UserFacingException('Solde insuffisant.');
+    }
 
     $pdo->prepare(
       'INSERT INTO transferts (id_compte, id_terminal, montant, type, statut, description, reference, solde_avant, solde_apres)
        VALUES (:id_compte, NULL, :montant, "PAIEMENT_RESTO", "REUSSI", :description, :reference, :solde_avant, :solde_apres)'
     )->execute([
       ':id_compte' => $idCompte,
-      ':montant' => $prixTicket,
+      ':montant' => millimes_to_db($prixTicket),
       ':description' => $descTicket,
       ':reference' => $reference,
-      ':solde_avant' => $soldeAvant,
-      ':solde_apres' => $soldeApres,
+      ':solde_avant' => millimes_to_db($soldeAvant),
+      ':solde_apres' => millimes_to_db($soldeApres),
     ]);
 
     $pdo->commit();
 
     $success = 'Paiement resto réussi. Référence: ' . $reference;
     $soldeActuel = $soldeApres;
-    log_security($etudiantId, 'etudiant', 'PAIEMENT_RESTO', 'Ticket resto ref=' . $reference . ' montant=' . $prixTicket, 'SUCCES');
+    log_security($etudiantId, 'etudiant', 'PAIEMENT_RESTO', 'Ticket resto ref=' . $reference . ' montant=' . millimes_to_db($prixTicket), 'SUCCES');
   } catch (Throwable $e) {
     if ($pdo->inTransaction()) {
       $pdo->rollBack();
@@ -107,7 +108,7 @@ require_once __DIR__ . '/../includes/header.php';
   <div class="grid">
     <div class="card col-6">
       <div class="card-title"><i class="fa-solid fa-receipt"></i> Ticket resto</div>
-      <div style="font-size:32px;font-weight:800;margin-top:6px;">TND <?php echo number_format($prixTicket, 2, '.', ' '); ?></div>
+      <div style="font-size:32px;font-weight:800;margin-top:6px;">TND <?php echo number_format(millimes_to_dt($prixTicket), 2, '.', ' '); ?></div>
       <div style="margin-top:8px;color:var(--muted);"><?php echo htmlspecialchars($descTicket); ?></div>
       <div style="margin-top:12px;">
         <form method="post" action="">
@@ -120,7 +121,7 @@ require_once __DIR__ . '/../includes/header.php';
 
     <div class="card col-6">
       <div class="card-title"><i class="fa-solid fa-wallet"></i> Votre solde</div>
-      <div style="font-size:32px;font-weight:800;margin-top:6px;">TND <?php echo number_format($soldeActuel, 2, '.', ' '); ?></div>
+      <div style="font-size:32px;font-weight:800;margin-top:6px;">TND <?php echo number_format(millimes_to_dt($soldeActuel), 2, '.', ' '); ?></div>
       <div style="margin-top:12px;">
         <a class="btn" href="<?php echo htmlspecialchars(BASE_URL); ?>/etudiant/historique.php"><i class="fa-solid fa-clock-rotate-left"></i> Voir historique</a>
       </div>

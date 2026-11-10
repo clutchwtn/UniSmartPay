@@ -72,7 +72,7 @@ try {
     }
 
     $mode = (string)$order['mode'];
-    $amount = (float)$order['montant'];
+    $amount = money_to_millimes($order['montant']);
 
     // Find card/account
     $cands = uid_candidates($uid);
@@ -100,7 +100,7 @@ try {
 
     $etudiantNom = trim((string)($acc['prenom'] ?? '') . ' ' . (string)($acc['nom'] ?? ''));
 
-    $soldeAvant = (float)$acc['solde'];
+    $soldeAvant = money_to_millimes($acc['solde']);
     if ($soldeAvant < $amount) {
         $cardError = true;
         throw new UserFacingException('Solde insuffisant');
@@ -121,8 +121,9 @@ try {
             $quantite = (int)($it['quantite'] ?? 0);
             if ($idProduit <= 0 || $quantite <= 0) continue;
             $normalized[$idProduit] = ($normalized[$idProduit] ?? 0) + $quantite;
-            if (isset($it['prix_unitaire']) && is_numeric($it['prix_unitaire']) && (float)$it['prix_unitaire'] >= 0) {
-                $prices[$idProduit] = (float)$it['prix_unitaire'];
+            $prixFige = money_parse($it['prix_unitaire'] ?? null);
+            if ($prixFige !== null && $prixFige >= 0) {
+                $prices[$idProduit] = $prixFige;
             }
         }
         if (count($normalized) === 0) {
@@ -157,22 +158,21 @@ try {
     $stmtTr->execute([
         ':id_compte' => (int)$acc['id_compte'],
         ':id_terminal' => $terminalId,
-        ':montant' => $amount,
+        ':montant' => millimes_to_db($amount),
         ':type' => $type,
         ':statut' => 'REUSSI',
         ':description' => 'Paiement terminal (commande)',
         ':reference' => $reference,
-        ':solde_avant' => $soldeAvant,
-        ':solde_apres' => $soldeApres,
+        ':solde_avant' => millimes_to_db($soldeAvant),
+        ':solde_apres' => millimes_to_db($soldeApres),
     ]);
 
     $idTransfert = (int)$pdo->lastInsertId();
 
-    // Update account balance
-    $pdo->prepare('UPDATE comptes SET solde = :solde WHERE id_compte = :id')->execute([
-        ':solde' => $soldeApres,
-        ':id' => (int)$acc['id_compte'],
-    ]);
+    // Update account balance (SQL guard: never below zero)
+    if (!account_debit($pdo, (int)$acc['id_compte'], $amount)) {
+        throw new UserFacingException('Solde insuffisant');
+    }
 
     if ($mode === 'BUVETTE') {
         $stmtProd = $pdo->prepare('SELECT id_produit, prix, actif FROM produits WHERE id_produit = :id FOR UPDATE');
@@ -188,12 +188,12 @@ try {
             if (!$p || (int)$p['actif'] !== 1) {
                 throw new UserFacingException('Produit introuvable');
             }
-            $prix = $prices[$idProduit] ?? (float)$p['prix'];
+            $prix = $prices[$idProduit] ?? money_to_millimes($p['prix']);
             $stmtDet->execute([
                 ':id_transfert' => $idTransfert,
                 ':id_produit' => (int)$idProduit,
                 ':quantite' => (int)$quantite,
-                ':prix_unitaire' => (float)$prix,
+                ':prix_unitaire' => millimes_to_db($prix),
             ]);
             $stmtUpdStock->execute([':qte' => (int)$quantite, ':id' => (int)$idProduit]);
         }
@@ -222,8 +222,8 @@ try {
         ->execute([
             ':id_terminal' => $terminalId,
             ':type' => 'SOLDE',
-            ':msg' => 'Nouveau solde : ' . number_format($soldeApres, 2, '.', '') . ' DT',
-            ':json' => json_encode(['solde_apres' => $soldeApres], JSON_UNESCAPED_UNICODE),
+            ':msg' => 'Nouveau solde : ' . millimes_to_db($soldeApres) . ' DT',
+            ':json' => json_encode(['solde_apres' => millimes_to_dt($soldeApres)], JSON_UNESCAPED_UNICODE),
             ':uid' => $uid,
         ]);
 
@@ -242,7 +242,7 @@ try {
         'success' => true,
         'order_id' => $orderId,
         'reference' => $reference,
-        'solde_apres' => $soldeApres,
+        'solde_apres' => millimes_to_dt($soldeApres),
         'etudiant' => [
             'id_etudiant' => (int)$acc['id_etudiant'],
             'nom' => (string)($acc['nom'] ?? ''),

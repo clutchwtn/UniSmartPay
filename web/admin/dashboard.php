@@ -129,7 +129,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             log_security($adminId, 'admin', 'ASSIGN_CARD', 'Assignation carte matricule=' . $matricule . ' uid=' . $uid, 'SUCCES');
         } elseif ($action === 'recharge') {
             $matricule = trim((string)($_POST['matricule'] ?? ''));
-            $montant = (float)($_POST['montant'] ?? 0);
+            $montant = money_parse($_POST['montant'] ?? null) ?? 0; // millimes
             $methode = (string)($_POST['methode'] ?? 'ESPECES');
             $note = trim((string)($_POST['note'] ?? ''));
 
@@ -165,22 +165,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$acc) {
                 throw new UserFacingException('Compte introuvable.');
             }
-            $soldeAvant = (float)$acc['solde'];
+            $soldeAvant = money_to_millimes($acc['solde']);
             $soldeApres = $soldeAvant + $montant;
 
-            $pdo->prepare('UPDATE comptes SET solde = :solde WHERE id_compte = :id_compte')
-                ->execute([':solde' => $soldeApres, ':id_compte' => $idCompte]);
+            $pdo->prepare('UPDATE comptes SET solde = solde + CAST(:credit AS DECIMAL(10,2)) WHERE id_compte = :id_compte')
+                ->execute([':credit' => millimes_to_db($montant), ':id_compte' => $idCompte]);
 
             $pdo->prepare(
                 'INSERT INTO transferts (id_compte, id_terminal, montant, type, statut, description, reference, solde_avant, solde_apres)
                  VALUES (:id_compte, NULL, :montant, "RECHARGE", "REUSSI", :description, :reference, :solde_avant, :solde_apres)'
             )->execute([
                 ':id_compte' => $idCompte,
-                ':montant' => $montant,
+                ':montant' => millimes_to_db($montant),
                 ':description' => 'Recharge par admin',
                 ':reference' => $reference,
-                ':solde_avant' => $soldeAvant,
-                ':solde_apres' => $soldeApres,
+                ':solde_avant' => millimes_to_db($soldeAvant),
+                ':solde_apres' => millimes_to_db($soldeApres),
             ]);
 
             $pdo->prepare(
@@ -189,19 +189,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             )->execute([
                 ':id_compte' => $idCompte,
                 ':id_admin' => $adminId,
-                ':montant' => $montant,
+                ':montant' => millimes_to_db($montant),
                 ':methode' => $methode,
                 ':note' => $note !== '' ? $note : null,
             ]);
 
             $pdo->commit();
 
-            $success = 'Recharge réussie. Nouveau solde: TND ' . number_format($soldeApres, 2, '.', ' ');
-            log_security($adminId, 'admin', 'RECHARGE', 'Recharge matricule=' . $matricule . ' montant=' . $montant . ' ref=' . $reference, 'SUCCES');
+            $success = 'Recharge réussie. Nouveau solde: TND ' . number_format(millimes_to_dt($soldeApres), 2, '.', ' ');
+            log_security($adminId, 'admin', 'RECHARGE', 'Recharge matricule=' . $matricule . ' montant=' . millimes_to_db($montant) . ' ref=' . $reference, 'SUCCES');
         } elseif ($action === 'add_product') {
             $nom = trim((string)($_POST['nom'] ?? ''));
             $codeBarre = trim((string)($_POST['code_barre'] ?? ''));
-            $prix = (float)($_POST['prix'] ?? 0);
+            $prix = money_parse($_POST['prix'] ?? null) ?? 0; // millimes
             $categorie = trim((string)($_POST['categorie'] ?? ''));
             $stock = (int)($_POST['stock'] ?? 0);
 
@@ -227,7 +227,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             )->execute([
               ':nom' => $nom,
               ':code_barre' => $codeBarre,
-              ':prix' => $prix,
+              ':prix' => millimes_to_db($prix),
               ':categorie' => $categorie !== '' ? $categorie : null,
               ':stock' => $stock,
             ]);

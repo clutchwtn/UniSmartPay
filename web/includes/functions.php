@@ -191,7 +191,10 @@ function log_security(?int $idUser, string $typeUser, string $action, string $de
     }
 }
 
-const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_MAX_ATTEMPTS = 5;         // per account
+// Per IP, counted separately for students and admins. Kept high because many
+// students share one public IP on campus Wi-Fi.
+const LOGIN_MAX_ATTEMPTS_PER_IP = 50;
 const LOGIN_WINDOW_SECONDS = 900; // 15 minutes
 
 function login_identifier(string $identifier): string {
@@ -202,17 +205,18 @@ function login_identifier(string $identifier): string {
 function login_is_locked(string $typeUser, string $identifier): bool {
     $stmt = db()->prepare(
         'SELECT COALESCE(SUM(type_user = :type AND identifier = :ident), 0) AS by_account,
-                COALESCE(SUM(ip_address = :ip), 0) AS by_ip
+                COALESCE(SUM(type_user = :type_ip AND ip_address = :ip), 0) AS by_ip
          FROM login_attempts
          WHERE attempted_at > (NOW() - INTERVAL ' . LOGIN_WINDOW_SECONDS . ' SECOND)'
     );
     $stmt->execute([
         ':type' => $typeUser,
         ':ident' => login_identifier($identifier),
+        ':type_ip' => $typeUser,
         ':ip' => (string)($_SERVER['REMOTE_ADDR'] ?? ''),
     ]);
     $row = $stmt->fetch();
-    return (int)$row['by_account'] >= LOGIN_MAX_ATTEMPTS || (int)$row['by_ip'] >= LOGIN_MAX_ATTEMPTS;
+    return (int)$row['by_account'] >= LOGIN_MAX_ATTEMPTS || (int)$row['by_ip'] >= LOGIN_MAX_ATTEMPTS_PER_IP;
 }
 
 function login_record_failure(string $typeUser, string $identifier): void {

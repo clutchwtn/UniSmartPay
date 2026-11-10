@@ -1,3 +1,4 @@
+# Development setup only. For a real installation, see INSTALL.md.
 services:
   app:
     build:

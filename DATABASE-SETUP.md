@@ -13,6 +13,8 @@ one test student for local testing:
 | `TEST/RFID/0001` | `Etudiant@1234` | `9F:F7:9D:C2` | 20.00 DT |
 
 No admins and no terminals are seeded. Create them with the scripts below.
+On a production server, remove the test data with
+`database/remove_test_data.sql` (see [`INSTALL.md`](INSTALL.md)).
 
 ## Loading the schema
 

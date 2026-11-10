@@ -1,7 +1,8 @@
-# Installation without Docker (XAMPP)
+# Local development with XAMPP
 
-Docker is the simplest setup (see the [README](../README.md)). Use this guide
-to run the app on XAMPP instead.
+This guide runs UniSmart Pay on a Windows computer with XAMPP, for development
+and testing. Docker is simpler (see the [README](../README.md)). XAMPP is not
+meant for real use; to install for real use, follow [`../INSTALL.md`](../INSTALL.md).
 
 ## Requirements
 

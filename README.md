@@ -18,7 +18,16 @@ Demo video: https://youtu.be/cDfxOyyTLME
 - **Terminal logs:** terminal activity is stored in `code_appareil` and shown
   on the terminal pages.
 
-## Quick start (Docker)
+## Installation
+
+To install UniSmart Pay for real use, on a Linux server with Apache, PHP and
+MariaDB, follow [`INSTALL.md`](INSTALL.md). It covers HTTPS, the firewall,
+backups and updates.
+
+## Development (Docker)
+
+Docker gives you a local copy for development and testing. It is not meant
+for real use: it runs with development settings and plain HTTP.
 
 ```bash
 cp .env.example .env
@@ -51,7 +60,7 @@ To start phpMyAdmin as well, use `docker compose --profile tools up -d` and
 open `http://localhost:8081`. To reset the database to the seed data, run
 `docker compose down -v`, then start again.
 
-To run without Docker (XAMPP), see [`web/INSTALLATION.md`](web/INSTALLATION.md).
+To develop without Docker (XAMPP on Windows), see [`web/INSTALLATION.md`](web/INSTALLATION.md).
 
 ## ESP32 terminal
 
@@ -87,7 +96,8 @@ as the terminal itself, so no ESP32 is required. See [`tests/README.md`](tests/R
 
 ## Documentation
 
-- [`web/INSTALLATION.md`](web/INSTALLATION.md): installation without Docker (XAMPP).
+- [`INSTALL.md`](INSTALL.md): installation on a Linux server.
+- [`web/INSTALLATION.md`](web/INSTALLATION.md): local development with XAMPP.
 - [`DATABASE-SETUP.md`](DATABASE-SETUP.md): schema, migrations, admins and terminals.
 - [`esp32/SETUP_GUIDE.md`](esp32/SETUP_GUIDE.md): ESP32 wiring, firmware and troubleshooting.
 - [`SERIAL_MONITOR.md`](SERIAL_MONITOR.md): terminal logs and serial debugging.

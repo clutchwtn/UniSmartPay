@@ -5,6 +5,12 @@
 # Activer rewrite engine
 RewriteEngine On
 
+# Redirection HTTPS (uniquement si UNISMARTPAY_FORCE_HTTPS=1)
+RewriteCond %{ENV:UNISMARTPAY_FORCE_HTTPS} =1
+RewriteCond %{HTTPS} off
+RewriteCond %{HTTP:X-Forwarded-Proto} !=https [NC]
+RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
 # Rediriger vers index.php dans web/
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
@@ -72,8 +78,8 @@ RewriteRule ^(.*)$ index.php?path=$1 [L,QSA]
     # XSS Protection
     Header set X-XSS-Protection "1; mode=block"
     
-    # HSTS (si HTTPS)
-    # Header set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    # HSTS (uniquement si UNISMARTPAY_FORCE_HTTPS=1)
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" "expr=env('UNISMARTPAY_FORCE_HTTPS') == '1'"
     
     # Content Security Policy
     Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"

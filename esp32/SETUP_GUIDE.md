@@ -91,6 +91,14 @@ the computer firewall must allow the HTTP connection.
 | Upload fails | Board, port and BOOT button. |
 | LED does not light | Polarity, resistor and GPIO 21/22. |
 
+## TODO on device
+
+The sketch currently talks plain HTTP. Before exposing the server with
+`UNISMARTPAY_FORCE_HTTPS=1` (which redirects HTTP to HTTPS), move the firmware
+to `WiFiClientSecure` with a pinned certificate (or CA) so the
+`X-Terminal-Token` header is never sent in clear text. The HTTP redirect would
+otherwise break the terminals.
+
 ## API calls
 
 The sketch uses:

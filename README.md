@@ -6,6 +6,21 @@ ESP32 terminal with an RC522 reader.
 
 Demo video: https://youtu.be/cDfxOyyTLME
 
+## My contribution
+
+UniSmart Pay was a semester 4 team project at the Faculté des Sciences de Tunis.
+The original repository is
+[mohamedkhaliljadlaoui-prog/UniSmartPay](https://github.com/mohamedkhaliljadlaoui-prog/UniSmartPay);
+this is my fork.
+
+- I designed the concept and the overall architecture: the RFID terminal, the
+  web platform with admin, student and terminal roles, and the PHP/MySQL backend.
+- I built the ESP32 firmware ([`esp32/unismart_pay_terminal.ino`](esp32/unismart_pay_terminal.ino))
+  with AI tools: it reads cards from an RC522 reader over SPI, ignores repeated
+  scans of the same card for a short cooldown, checks cards and sends payments
+  as JSON over HTTP with a per-terminal token, and sends its logs to the web
+  serial monitor.
+
 ## Features
 
 - **Student portal:** balance, transaction history, card status, and web payment

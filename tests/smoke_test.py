@@ -23,7 +23,9 @@ import json
 import os
 import random
 import re
+import secrets
 import sys
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -164,6 +166,44 @@ def fail_order(order_id, terminal_id, token):
     )
 
 
+def resto_pay(request_id=None, token=RESTO_TOKEN, terminal_id=RESTO_TERMINAL):
+    data = {"card_uid": CARD_UID, "terminal_id": terminal_id}
+    if request_id is not None:
+        data["request_id"] = request_id
+    return Client().post(BASE + "/api/payment.php", data=data, headers=terminal(token))
+
+
+def queue_and_claim_order(admin):
+    """Cashier queues a 1-product cafe order and the terminal claims it. Returns the order id or None."""
+    page = admin.get(BASE + f"/terminal/buvette.php?terminal_id={BUVETTE_TERMINAL}")
+    r = admin.post(
+        BASE + "/api/terminal_order_create_buvette.php",
+        data={"csrf_token": csrf_from(page.text), "terminal_id": BUVETTE_TERMINAL,
+              "items": [{"id_produit": PRODUCT_ID, "quantite": 1}]},
+    )
+    order_id = r.json().get("order_id")
+    if not order_id:
+        return None
+    # Older leftover orders get failed so the queue reaches ours.
+    for _ in range(10):
+        cr = Client().get(BASE + f"/api/terminal_order_claim.php?terminal_id={BUVETTE_TERMINAL}",
+                          headers=terminal(BUVETTE_TOKEN))
+        o = cr.json().get("order") or {}
+        if not o:
+            return None
+        if o.get("order_id") == order_id:
+            return order_id
+        fail_order(o["order_id"], BUVETTE_TERMINAL, BUVETTE_TOKEN)
+    return None
+
+
+def charged_since(before):
+    _, after = card_balance()
+    if before is None or after is None:
+        return None
+    return round(before - after, 3)
+
+
 # ---------------------------------------------------------------- test runner
 results = []  # (group, name, outcome, detail)
 
@@ -289,6 +329,44 @@ def functional():
         if paid:
             admin_recharge(admin, STUDENT_MAT, PRODUCT_PRICE)
 
+    def t_student_resto():
+        stu, ok = login_student()
+        if not ok:
+            check("func", "student web resto payment", False, "student login failed")
+            return
+        _, before = card_balance()
+        page = stu.get(BASE + "/etudiant/paiement_resto.php")
+        m = re.search(r'name="request_id" value="([0-9a-f]+)"', page.text)
+        r = stu.post(BASE + "/etudiant/paiement_resto.php",
+                     form={"csrf_token": csrf_from(page.text), "request_id": m.group(1) if m else ""})
+        ok = "Paiement resto réussi" in r.text
+        check("func", "student web resto payment", ok, f"HTTP {r.status}")
+        if ok:
+            check("func", "student web resto payment debits the right amount",
+                  charged_since(before) == RESTO_PRICE, f"charged {charged_since(before)}")
+            admin, logged = login_admin()
+            if logged:
+                admin_recharge(admin, STUDENT_MAT, RESTO_PRICE)
+
+    def t_student_buvette():
+        stu, ok = login_student()
+        if not ok:
+            check("func", "student web cafe checkout", False, "student login failed")
+            return
+        _, before = card_balance()
+        csrf = csrf_from(stu.get(BASE + "/etudiant/paiement_buvette.php").text)
+        r = stu.post(BASE + "/api/buvette_checkout.php",
+                     data={"csrf_token": csrf, "items": [{"id_produit": PRODUCT_ID, "quantite": 1}],
+                           "request_id": secrets.token_hex(16)})
+        ok = r.json().get("ok") is True
+        check("func", "student web cafe checkout", ok, f"HTTP {r.status} {r.text[:150]}")
+        if ok:
+            check("func", "student web cafe checkout debits the right amount",
+                  charged_since(before) == PRODUCT_PRICE, f"charged {charged_since(before)}")
+            admin, logged = login_admin()
+            if logged:
+                admin_recharge(admin, STUDENT_MAT, PRODUCT_PRICE)
+
     for name, fn in [
         ("card_check", t_card_check),
         ("card_check no token", t_card_check_no_token),
@@ -296,6 +374,8 @@ def functional():
         ("admin login", t_admin_login),
         ("resto payment", t_resto_payment),
         ("cafe flow", t_buvette_flow),
+        ("student resto", t_student_resto),
+        ("student cafe", t_student_buvette),
     ]:
         guarded("func", name, fn)
 
@@ -408,6 +488,91 @@ def security(include_lockout):
                   if "json" in (Client().post(BASE + "/api/" + p, data={}).headers or {}).get("Content-Type", "")]
         check("sec", "P3  unused terminal endpoints are removed", not served, f"still served: {served}")
 
+    # D = double charge on retry: a repeated request id must be answered, not charged again.
+    def d1_resto_retry():
+        _, before = card_balance()
+        rid = secrets.token_hex(16)
+        first, second = resto_pay(rid).json(), resto_pay(rid).json()
+        charged = charged_since(before)
+        if charged:
+            admin, ok = login_admin()
+            if ok:
+                admin_recharge(admin, STUDENT_MAT, charged)
+        same = first.get("success") is True and second.get("success") is True \
+            and second.get("reference") == first.get("reference") and second.get("replayed") is True
+        check("sec", "D1  resto terminal retry with same request_id charges once",
+              same and charged == RESTO_PRICE, f"charged {charged}, second={json.dumps(second)[:120]}")
+
+    def d2_order_retry():
+        admin, ok = login_admin()
+        if not ok:
+            check("sec", "D2  cafe order retry with same request_id charges once", False, "admin login failed")
+            return
+        order_id = queue_and_claim_order(admin)
+        if not order_id:
+            check("sec", "D2  cafe order retry with same request_id charges once", False, "could not queue an order")
+            return
+        _, before = card_balance()
+        rid = secrets.token_hex(16)
+        data = {"order_id": order_id, "terminal_id": BUVETTE_TERMINAL, "card_uid": CARD_UID, "request_id": rid}
+        first = Client().post(BASE + "/api/terminal_order_pay.php", data=data, headers=terminal(BUVETTE_TOKEN)).json()
+        second = Client().post(BASE + "/api/terminal_order_pay.php", data=data, headers=terminal(BUVETTE_TOKEN)).json()
+        charged = charged_since(before)
+        if charged:
+            admin_recharge(admin, STUDENT_MAT, charged)
+        # The retry must report success (the terminal shows green), not "already paid".
+        same = first.get("ok") is True and second.get("ok") is True and second.get("reference") == first.get("reference")
+        check("sec", "D2  cafe order retry with same request_id charges once",
+              same and charged == PRODUCT_PRICE, f"charged {charged}, second={json.dumps(second)[:120]}")
+
+    def d3_concurrent_retry():
+        _, before = card_balance()
+        rid = secrets.token_hex(16)
+        out = []
+        threads = [threading.Thread(target=lambda: out.append(resto_pay(rid).json())) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        charged = charged_since(before)
+        if charged:
+            admin, ok = login_admin()
+            if ok:
+                admin_recharge(admin, STUDENT_MAT, charged)
+        refs = {o.get("reference") for o in out if o.get("success") is True}
+        check("sec", "D3  4 simultaneous sends of one request_id charge once",
+              charged == RESTO_PRICE and len(refs) == 1, f"charged {charged}, references {refs}")
+
+    def d4_student_retry():
+        stu, ok = login_student()
+        if not ok:
+            check("sec", "D4  student web double submit charges once", False, "student login failed")
+            return
+        _, before = card_balance()
+        csrf = csrf_from(stu.get(BASE + "/etudiant/paiement_buvette.php").text)
+        body = {"csrf_token": csrf, "items": [{"id_produit": PRODUCT_ID, "quantite": 1}],
+                "request_id": secrets.token_hex(16)}
+        stu.post(BASE + "/api/buvette_checkout.php", data=body)
+        stu.post(BASE + "/api/buvette_checkout.php", data=body)
+        page = stu.get(BASE + "/etudiant/paiement_resto.php")
+        form = {"csrf_token": csrf_from(page.text),
+                "request_id": re.search(r'name="request_id" value="([0-9a-f]+)"', page.text).group(1)}
+        stu.post(BASE + "/etudiant/paiement_resto.php", form=form)
+        stu.post(BASE + "/etudiant/paiement_resto.php", form=form)
+        charged = charged_since(before)
+        if charged:
+            admin, ok = login_admin()
+            if ok:
+                admin_recharge(admin, STUDENT_MAT, charged)
+        expected = round(PRODUCT_PRICE + RESTO_PRICE, 3)
+        check("sec", "D4  student web double submit charges once (cafe + resto)", charged == expected,
+              f"charged {charged}, expected {expected}")
+
+    def d5_bad_request_id():
+        r = resto_pay("bad id with spaces")
+        check("sec", "D5  malformed request_id is refused", r.json().get("success") is not True,
+              f"HTTP {r.status} {r.text[:100]}")
+
     def s9_lockout():
         c = Client()
         for _ in range(6):
@@ -419,7 +584,8 @@ def security(include_lockout):
               "6 bad passwords, then correct one still logged in")
 
     checks = [s1_seed_token, s1_seed_admin, s2_logs, s3_anon_order, s4_files, s6_cookie, s7_status, s11_no_card,
-              p1_server_price, p2_buvette_terminal_resto, p3_removed_endpoints]
+              p1_server_price, p2_buvette_terminal_resto, p3_removed_endpoints,
+              d1_resto_retry, d2_order_retry, d3_concurrent_retry, d4_student_retry, d5_bad_request_id]
     for fn in checks:
         guarded("sec", fn.__name__, fn)
     if include_lockout:

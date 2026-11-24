@@ -60,6 +60,7 @@ order:
 ```bash
 mysql -u <user> -p unismart_pay < database/migrations/001_terminal_orders_created_by_admin.sql
 mysql -u <user> -p unismart_pay < database/migrations/002_login_attempts.sql
+mysql -u <user> -p unismart_pay < database/migrations/003_payment_requests.sql
 ```
 
 Terminal tokens are stored hashed, so terminals from older databases (plain

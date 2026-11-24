@@ -191,6 +191,24 @@ CREATE TABLE terminal_orders (
 ) ENGINE=InnoDB;
 
 -- ============================================================
+-- TABLE : payment_requests  (anti double débit)
+-- Un client (terminal ESP32, page étudiant) envoie un request_id avec chaque
+-- paiement. Un deuxième envoi du même id renvoie la réponse stockée au lieu
+-- de débiter à nouveau.
+-- ============================================================
+CREATE TABLE payment_requests (
+	id_request     INT AUTO_INCREMENT PRIMARY KEY,
+	scope          VARCHAR(40)  NOT NULL,         -- 'terminal:<id>' ou 'etudiant:<id>'
+	request_id     VARCHAR(64)  NOT NULL,
+	id_transfert   INT,
+	response_json  TEXT,
+	created_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	UNIQUE KEY uq_payment_request (scope, request_id),
+	FOREIGN KEY (id_transfert) REFERENCES transferts(id_transfert) ON DELETE SET NULL,
+	INDEX idx_payment_requests_created (created_at)
+) ENGINE=InnoDB;
+
+-- ============================================================
 -- TABLE : recharges  (historique des rechargements)
 -- ============================================================
 CREATE TABLE recharges (

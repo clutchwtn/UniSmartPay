@@ -65,6 +65,13 @@ and the ESP32 reads it before each payment.
   payment → a card is presented → the terminal claims that waiting order and pays it.
 - Green LED: payment accepted. Red LED: rejected or error.
 - The same card is ignored for 10 seconds after a payment, to avoid double scans.
+- **No double charge on retry.** Each payment carries a random `request_id`.
+  If the server's answer is lost, the terminal resends the same request up to
+  3 times; the server charges once and answers repeats with the first result.
+  If no answer comes back at all, the red LED lights and the same card can be
+  tapped again right away: for 2 minutes that tap reuses the same `request_id`
+  (and the same cafe order), so a payment that did go through is not charged
+  twice. Only the last unanswered card is remembered.
 
 ## Upload and test
 

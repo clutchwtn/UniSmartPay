@@ -150,8 +150,34 @@ def admin_recharge(admin, matricule, amount):
     return "Recharge r" in r.text
 
 
+def admin_post(admin, form):
+    page = admin.get(BASE + "/admin/dashboard.php")
+    return admin.post(BASE + "/admin/dashboard.php", form={"csrf_token": csrf_from(page.text), **form})
+
+
+def card_status(uid):
+    return Client().post(BASE + "/api/card_check.php", data={"uid": uid},
+                         headers=terminal(RESTO_TOKEN)).json().get("carte_statut")
+
+
+def new_student_with_card(admin, tag):
+    """Throwaway student with a card and 10 DT, so a failing test never leaves the main test card blocked."""
+    n = random.randint(100000, 999999)
+    mat, uid, pwd = f"SMOKE/{tag}/{n}", f"{random.getrandbits(32):08X}", "Smoke@12345"
+    admin_post(admin, {"action": "add_student", "id_faculte": "1", "matricule": mat, "nom": "Smoke",
+                       "prenom": tag, "email": f"smoke{tag.lower()}{n}@example.test", "password": pwd})
+    admin_post(admin, {"action": "assign_card", "matricule": mat, "uid_rfid": uid})
+    admin_recharge(admin, mat, 10)
+    stu, ok = login_student(mat, pwd)
+    return (mat, uid, stu) if ok and card_status(uid) == "active" else None
+
+
 def card_balance(token=RESTO_TOKEN):
-    r = Client().post(BASE + "/api/card_check.php", data={"uid": CARD_UID}, headers=terminal(token))
+    return card_balance_of(CARD_UID, token)
+
+
+def card_balance_of(uid, token=RESTO_TOKEN):
+    r = Client().post(BASE + "/api/card_check.php", data={"uid": uid}, headers=terminal(token))
     return r, r.json().get("solde")
 
 
@@ -289,6 +315,96 @@ def functional():
         if paid:
             admin_recharge(admin, STUDENT_MAT, PRODUCT_PRICE)
 
+    def t_card_blocking():
+        admin, logged = login_admin()
+        if not logged:
+            check("func", "card blocking", False, "admin login failed")
+            return
+        made = new_student_with_card(admin, "BLOCK")
+        check("func", "card blocking: throwaway student with an active card", made is not None)
+        if not made:
+            return
+        mat, uid, stu = made
+
+        def resto_pay():
+            r = Client().post(BASE + "/api/payment.php",
+                              data={"card_uid": uid, "amount": RESTO_PRICE, "terminal_id": RESTO_TERMINAL},
+                              headers=terminal(RESTO_TOKEN))
+            return r.json().get("success") is True
+
+        # Student blocks their own card
+        page = stu.get(BASE + "/etudiant/carte.php").text
+        check("func", "card blocking: student sees 'Bloquer ma carte'", 'value="block_card"' in page)
+        r = stu.post(BASE + "/etudiant/carte.php", form={"csrf_token": csrf_from(page), "action": "block_card"})
+        check("func", "card blocking: student blocks own card",
+              card_status(uid) == "bloquee" and "Votre carte est bloqu" in r.text, f"statut={card_status(uid)}")
+
+        # Every way to pay refuses the blocked card
+        check("func", "card blocking: terminal resto payment refused", not resto_pay())
+
+        page = stu.get(BASE + "/etudiant/paiement_resto.php").text
+        r = stu.post(BASE + "/etudiant/paiement_resto.php", form={"csrf_token": csrf_from(page)})
+        check("func", "card blocking: web resto payment refused", "Paiement resto r" not in r.text
+              and "Carte non active" in r.text, r.text[-300:] if "Paiement resto r" in r.text else "")
+
+        csrf = csrf_from(stu.get(BASE + "/etudiant/paiement_buvette.php").text)
+        r = stu.post(BASE + "/api/buvette_checkout.php",
+                     data={"csrf_token": csrf, "items": [{"id_produit": PRODUCT_ID, "quantite": 1}]})
+        check("func", "card blocking: web cafe checkout refused", r.json().get("ok") is not True, r.text[:150])
+
+        page = admin.get(BASE + f"/terminal/buvette.php?terminal_id={BUVETTE_TERMINAL}")
+        r = admin.post(BASE + "/api/terminal_order_create_buvette.php",
+                       data={"csrf_token": csrf_from(page.text), "terminal_id": BUVETTE_TERMINAL,
+                             "items": [{"id_produit": PRODUCT_ID, "quantite": 1}]})
+        order_id = r.json().get("order_id")
+        claimed = False
+        for _ in range(10):
+            o = Client().get(BASE + f"/api/terminal_order_claim.php?terminal_id={BUVETTE_TERMINAL}",
+                             headers=terminal(BUVETTE_TOKEN)).json().get("order") or {}
+            if not o or o.get("order_id") == order_id:
+                claimed = bool(o)
+                break
+            fail_order(o["order_id"], BUVETTE_TERMINAL, BUVETTE_TOKEN)
+
+        def pay_order():
+            return Client().post(BASE + "/api/terminal_order_pay.php",
+                                 data={"order_id": order_id, "terminal_id": BUVETTE_TERMINAL, "card_uid": uid},
+                                 headers=terminal(BUVETTE_TOKEN)).json().get("ok") is True
+
+        check("func", "card blocking: terminal cafe payment refused", claimed and not pay_order(),
+              f"order={order_id} claimed={claimed}")
+
+        _, solde = card_balance_of(uid)
+        check("func", "card blocking: blocked card was never charged", solde == 10.0, f"solde={solde}")
+
+        # The student cannot unblock it; only an admin can
+        page = stu.get(BASE + "/etudiant/carte.php").text
+        check("func", "card blocking: student page hides the block button and says to contact admin",
+              'value="block_card"' not in page and "Contactez l'administration" in page)
+        stu.post(BASE + "/etudiant/carte.php", form={"csrf_token": csrf_from(page), "action": "unblock_card"})
+        check("func", "card blocking: student cannot unblock", card_status(uid) == "bloquee")
+
+        r = admin_post(admin, {"action": "unblock_card", "matricule": mat})
+        check("func", "card blocking: admin unblocks", card_status(uid) == "active" and "Carte d" in r.text)
+        check("func", "card blocking: unblocked card pays again (terminal resto)", resto_pay())
+
+        # The cafe order went back to PENDING; claim and pay it with the unblocked card
+        Client().get(BASE + f"/api/terminal_order_claim.php?terminal_id={BUVETTE_TERMINAL}",
+                     headers=terminal(BUVETTE_TOKEN))
+        check("func", "card blocking: unblocked card pays the cafe order", claimed and pay_order())
+
+        # Admin blocks with a reason; the student sees it
+        r = admin_post(admin, {"action": "block_card", "matricule": mat, "motif": "Carte perdue (smoke)"})
+        check("func", "card blocking: admin blocks with a reason",
+              card_status(uid) == "bloquee" and "Carte bloqu" in r.text)
+        check("func", "card blocking: student sees the reason",
+              "Carte perdue (smoke)" in stu.get(BASE + "/etudiant/carte.php").text)
+        check("func", "card blocking: admin block refused on an already blocked card",
+              "pas active" in admin_post(admin, {"action": "block_card", "matricule": mat}).text)
+        admin_post(admin, {"action": "unblock_card", "matricule": mat})
+        check("func", "card blocking: admin unblock refused on an active card",
+              "pas bloqu" in admin_post(admin, {"action": "unblock_card", "matricule": mat}).text)
+
     for name, fn in [
         ("card_check", t_card_check),
         ("card_check no token", t_card_check_no_token),
@@ -296,6 +412,7 @@ def functional():
         ("admin login", t_admin_login),
         ("resto payment", t_resto_payment),
         ("cafe flow", t_buvette_flow),
+        ("card blocking", t_card_blocking),
     ]:
         guarded("func", name, fn)
 

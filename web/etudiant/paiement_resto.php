@@ -45,6 +45,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$row) {
       throw new UserFacingException('Compte introuvable.');
     }
+    // Same rule as the terminals: exactly one card, and it must be active
+    // (a blocked card blocks web payments too).
+    $stmtCarte = $pdo->prepare('SELECT statut FROM cartes WHERE id_etudiant = :id FOR UPDATE');
+    $stmtCarte->execute([':id' => $etudiantId]);
+    $cartes = $stmtCarte->fetchAll();
+    if (count($cartes) !== 1 || $cartes[0]['statut'] !== 'active') {
+      throw new UserFacingException('Carte non active.');
+    }
+
     $soldeAvant = money_to_millimes($row['solde']);
     if ($soldeAvant < $prixTicket) {
       throw new UserFacingException('Solde insuffisant.');

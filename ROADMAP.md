@@ -5,9 +5,6 @@ the system handles real money.
 
 ## Before real use
 
-- **Block lost or stolen cards.** The `cartes` table has the fields
-  (`statut`, `motif_blocage`, `bloquee_par`), but no page sets them yet. Add a
-  "block my card" action for students and block/unblock for admins.
 - **No double charge on retry.** If the Wi-Fi drops after a payment succeeds,
   the terminal can retry and charge again. Send a unique request id with each
   payment and ignore repeats.

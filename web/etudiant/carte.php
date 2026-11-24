@@ -8,6 +8,33 @@ require_student_login();
 $pdo = db();
 $etudiantId = (int)$_SESSION['etudiant_id'];
 
+$success = '';
+$error = '';
+
+// "Block my card": a student can block their own card (lost or stolen) at any
+// time. Only an admin can unblock it, so a thief with the student's password
+// cannot turn the card back on.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  require_csrf_token((string)($_POST['csrf_token'] ?? ''));
+
+  if ((string)($_POST['action'] ?? '') === 'block_card') {
+    $stmt = $pdo->prepare(
+      'UPDATE cartes
+       SET statut = "bloquee", motif_blocage = :motif, date_blocage = NOW(), bloquee_par = NULL
+       WHERE id_etudiant = :id AND statut = "active"'
+    );
+    $stmt->execute([':motif' => 'Bloquée par l\'étudiant', ':id' => $etudiantId]);
+
+    if ($stmt->rowCount() === 1) {
+      $success = 'Votre carte est bloquée. Aucun paiement ne sera accepté. Contactez l\'administration pour la débloquer.';
+      log_security($etudiantId, 'etudiant', 'BLOCK_CARD', 'Carte bloquée par l\'étudiant', 'SUCCES');
+    } else {
+      $error = 'Aucune carte active à bloquer.';
+      log_security($etudiantId, 'etudiant', 'BLOCK_CARD', 'Echec: aucune carte active', 'ECHEC');
+    }
+  }
+}
+
 $stmt = $pdo->prepare(
   'SELECT e.matricule, e.nom, e.prenom, e.email,
       ca.uid_rfid, ca.statut, ca.date_emission, ca.date_expiration, ca.motif_blocage
@@ -39,6 +66,13 @@ require_once __DIR__ . '/../includes/header.php';
   <div class="page-header">
     <h1 class="h1">Ma carte RFID</h1>
   </div>
+
+  <?php if ($success): ?>
+    <div class="alert alert-success" style="margin-bottom:12px;"><?php echo htmlspecialchars($success); ?></div>
+  <?php endif; ?>
+  <?php if ($error): ?>
+    <div class="alert alert-danger" style="margin-bottom:12px;"><?php echo htmlspecialchars($error); ?></div>
+  <?php endif; ?>
 
   <div class="grid">
 
@@ -108,6 +142,23 @@ require_once __DIR__ . '/../includes/header.php';
             <strong>Motif de blocage&nbsp;:</strong><br>
             <?php echo htmlspecialchars((string)$card['motif_blocage']); ?>
           </div>
+        </div>
+      <?php endif; ?>
+
+      <?php if ($statut === 'ACTIVE'): ?>
+        <form method="post" action="" style="margin-top:16px;"
+              onsubmit="return confirm('Bloquer votre carte ? Seule l\'administration pourra la débloquer.');">
+          <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token()); ?>">
+          <input type="hidden" name="action" value="block_card">
+          <button class="btn btn-danger" type="submit"><i class="fa-solid fa-lock"></i> Bloquer ma carte</button>
+          <div class="text-muted" style="margin-top:6px;font-size:12px;">
+            Carte perdue ou volée&nbsp;? Bloquez-la tout de suite. Seule l'administration peut la débloquer.
+          </div>
+        </form>
+      <?php elseif ($statut === 'BLOQUEE'): ?>
+        <div class="alert" style="margin-top:16px;">
+          <i class="fa-solid fa-circle-info"></i>
+          Carte bloquée&nbsp;: aucun paiement n'est accepté. Contactez l'administration pour la débloquer.
         </div>
       <?php endif; ?>
 

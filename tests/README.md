@@ -3,8 +3,9 @@
 `smoke_test.py` runs against a live instance and checks two things:
 
 - **Functional:** logins, student pages, a restaurant payment, the full
-  cafeteria order flow and a recharge. Every test must say `PASS`; the script
-  exits with code 1 otherwise.
+  cafeteria order flow, a recharge, and card blocking (a student blocks their
+  card, every payment path refuses it, only an admin can unblock it). Every
+  test must say `PASS`; the script exits with code 1 otherwise.
 - **Security:** one check per fixed vulnerability, labelled with its fix
   number. Each should say `FIXED`; `OPEN` means a regression. These results
   only count when all functional tests pass.
@@ -33,8 +34,8 @@ Other settings (with defaults): `APP_ROOT` (`http://localhost:8080/UniSmartPay`)
 `RESTO_TERMINAL` (`1`), `BUVETTE_TERMINAL` (`2`), `STUDENT_MAT`, `STUDENT_PASS`,
 `CARD_UID`, `PRODUCT_ID`, `PRODUCT_PRICE`.
 
-The security checks for card-less payments add a throwaway student on each
-run. Reset the database with `docker compose down -v` when needed.
+The card-blocking test and the security check for card-less payments each add
+a throwaway student on each run. Reset the database with `docker compose down -v` when needed.
 
 ## Testing on a separate copy
 

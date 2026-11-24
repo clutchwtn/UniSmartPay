@@ -127,6 +127,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $success = 'Carte assignée avec succès.';
             log_security($adminId, 'admin', 'ASSIGN_CARD', 'Assignation carte matricule=' . $matricule . ' uid=' . $uid, 'SUCCES');
+        } elseif ($action === 'block_card' || $action === 'unblock_card') {
+            $matricule = trim((string)($_POST['matricule'] ?? ''));
+            $motif = trim((string)($_POST['motif'] ?? ''));
+            if ($matricule === '') {
+                throw new UserFacingException('Matricule requis.');
+            }
+
+            [$constraintSql, $constraintParams] = admin_faculte_constraint_sql('e', $adminFaculteId, $adminRole);
+            $stmt = $pdo->prepare(
+                'SELECT e.id_etudiant, ca.statut
+                 FROM etudiants e
+                 JOIN cartes ca ON ca.id_etudiant = e.id_etudiant
+                 WHERE e.matricule = :matricule ' . $constraintSql . '
+                 LIMIT 1'
+            );
+            $stmt->execute(array_merge([':matricule' => $matricule], $constraintParams));
+            $row = $stmt->fetch();
+            if (!$row) {
+                throw new UserFacingException('Carte introuvable (ou étudiant hors de votre faculté).');
+            }
+            $etudiantId = (int)$row['id_etudiant'];
+
+            if ($action === 'block_card') {
+                if ($motif === '') {
+                    $motif = 'Bloquée par l\'administration';
+                }
+                $motif = mb_substr($motif, 0, 255);
+                // Only an active card can be blocked; lost/expired cards keep their status.
+                $stmt = $pdo->prepare(
+                    'UPDATE cartes
+                     SET statut = "bloquee", motif_blocage = :motif, date_blocage = NOW(), bloquee_par = :admin_id
+                     WHERE id_etudiant = :id_etudiant AND statut = "active"'
+                );
+                $stmt->execute([':motif' => $motif, ':admin_id' => $adminId, ':id_etudiant' => $etudiantId]);
+                if ($stmt->rowCount() !== 1) {
+                    throw new UserFacingException('Cette carte n\'est pas active (statut: ' . (string)$row['statut'] . ').');
+                }
+                $success = 'Carte bloquée.';
+                log_security($adminId, 'admin', 'BLOCK_CARD', 'Blocage carte matricule=' . $matricule . ' motif=' . $motif, 'SUCCES');
+            } else {
+                // Only a blocked card can be unblocked; a lost or expired card needs a new card (assign_card).
+                $stmt = $pdo->prepare(
+                    'UPDATE cartes
+                     SET statut = "active", motif_blocage = NULL, date_blocage = NULL, bloquee_par = NULL
+                     WHERE id_etudiant = :id_etudiant AND statut = "bloquee"'
+                );
+                $stmt->execute([':id_etudiant' => $etudiantId]);
+                if ($stmt->rowCount() !== 1) {
+                    throw new UserFacingException('Cette carte n\'est pas bloquée (statut: ' . (string)$row['statut'] . ').');
+                }
+                $success = 'Carte débloquée.';
+                log_security($adminId, 'admin', 'UNBLOCK_CARD', 'Déblocage carte matricule=' . $matricule, 'SUCCES');
+            }
         } elseif ($action === 'recharge') {
             $matricule = trim((string)($_POST['matricule'] ?? ''));
             $montant = money_parse($_POST['montant'] ?? null) ?? 0; // millimes
@@ -410,6 +463,28 @@ require_once __DIR__ . '/../includes/header.php';
         </form>
       </div>
 
+      <div class="card" style="margin-bottom:12px;">
+        <div class="h2" style="margin-bottom:8px;">Bloquer / débloquer une carte</div>
+        <form method="post" action="">
+          <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token()); ?>">
+
+          <div class="grid" style="gap:10px;">
+            <div class="col-6">
+              <label class="h2" style="display:block;margin-bottom:6px;">Matricule</label>
+              <input class="input" name="matricule" placeholder="2024/FST/0001" required />
+            </div>
+            <div class="col-6">
+              <label class="h2" style="display:block;margin-bottom:6px;">Motif (blocage)</label>
+              <input class="input" name="motif" maxlength="255" placeholder="Ex: carte perdue" />
+            </div>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:8px;">
+            <button class="btn btn-danger" type="submit" name="action" value="block_card"><i class="fa-solid fa-lock"></i> Bloquer</button>
+            <button class="btn btn-success" type="submit" name="action" value="unblock_card"><i class="fa-solid fa-lock-open"></i> Débloquer</button>
+          </div>
+        </form>
+      </div>
+
       <div class="card">
         <div class="h2" style="margin-bottom:8px;">Recharger un compte</div>
         <form method="post" action="">
@@ -537,6 +612,19 @@ require_once __DIR__ . '/../includes/header.php';
                 <td>
                   <?php if (!empty($e['uid_rfid'])): ?>
                     <?php echo htmlspecialchars(mask_uid((string)$e['uid_rfid'])); ?> (<?php echo htmlspecialchars((string)$e['carte_statut']); ?>)
+                    <?php $rowAction = match ((string)$e['carte_statut']) { 'active' => 'block_card', 'bloquee' => 'unblock_card', default => '' }; ?>
+                    <?php if ($rowAction !== ''): ?>
+                      <form method="post" action="" style="display:inline;">
+                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token()); ?>">
+                        <input type="hidden" name="action" value="<?php echo $rowAction; ?>">
+                        <input type="hidden" name="matricule" value="<?php echo htmlspecialchars((string)$e['matricule']); ?>">
+                        <?php if ($rowAction === 'block_card'): ?>
+                          <button class="btn btn-sm btn-danger" type="submit"><i class="fa-solid fa-lock"></i> Bloquer</button>
+                        <?php else: ?>
+                          <button class="btn btn-sm btn-success" type="submit"><i class="fa-solid fa-lock-open"></i> Débloquer</button>
+                        <?php endif; ?>
+                      </form>
+                    <?php endif; ?>
                   <?php else: ?>
                     <span style="color:var(--muted);">non attribuée</span>
                   <?php endif; ?>

@@ -5,9 +5,6 @@ the system handles real money.
 
 ## Before real use
 
-- **Block lost or stolen cards.** The `cartes` table has the fields
-  (`statut`, `motif_blocage`, `bloquee_par`), but no page sets them yet. Add a
-  "block my card" action for students and block/unblock for admins.
 - **Require a request id from terminals.** Payments without `request_id` are
   still accepted so terminals with older firmware keep working. Once every
   terminal runs the new firmware, reject them.

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/payment.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -36,16 +36,7 @@ if (!is_array($items) || count($items) === 0) {
     exit();
 }
 
-// Normalize items
-$normalized = [];
-foreach ($items as $item) {
-    if (!is_array($item)) continue;
-    $idProduit = (int)($item['id_produit'] ?? 0);
-    $quantite = (int)($item['quantite'] ?? 0);
-    if ($idProduit <= 0 || $quantite <= 0) continue;
-    $normalized[$idProduit] = ($normalized[$idProduit] ?? 0) + $quantite;
-}
-
+$normalized = payment_normalize_items($items);
 if (count($normalized) === 0) {
     http_response_code(400);
     echo json_encode(['ok' => false, 'error' => 'Articles invalides']);
@@ -55,122 +46,38 @@ if (count($normalized) === 0) {
 $etudiantId = (int)$_SESSION['etudiant_id'];
 
 try {
+    // Sent by the page once per basket, so a double click or a resend pays once.
+    $requestId = payment_request_id($payload['request_id'] ?? null);
+
     $pdo = db();
     $pdo->beginTransaction();
 
-    // Lock account
-    $stmt = $pdo->prepare(
-        'SELECT c.id_compte, c.solde
-         FROM comptes c
-         WHERE c.id_etudiant = :id
-         FOR UPDATE'
-    );
-    $stmt->execute([':id' => $etudiantId]);
-    $account = $stmt->fetch();
-
-    if (!$account) {
-        throw new UserFacingException('Compte introuvable');
+    $scope = 'etudiant:' . $etudiantId;
+    if ($requestId !== '' && ($replay = payment_request_claim($pdo, $scope, $requestId)) !== null) {
+        $pdo->rollBack();
+        echo json_encode($replay);
+        exit();
     }
 
-    // Lock the student's card: exactly one card, and it must be active
-    $stmtCarte = $pdo->prepare('SELECT statut FROM cartes WHERE id_etudiant = :id FOR UPDATE');
-    $stmtCarte->execute([':id' => $etudiantId]);
-    $cartes = $stmtCarte->fetchAll();
+    $account = payment_lock_account_by_student($pdo, $etudiantId);
+    $charge = payment_charge($pdo, $account, 'PAIEMENT_BUVETTE', null, $normalized, [], null, 'Achat buvette (web scan)');
 
-    if (count($cartes) !== 1 || $cartes[0]['statut'] !== 'active') {
-        throw new UserFacingException('Carte non active');
-    }
-
-    $idCompte = (int)$account['id_compte'];
-    $soldeAvant = money_to_millimes($account['solde']);
-
-    // Lock products and compute total (millimes)
-    $total = 0;
-    $productDetails = []; // id_produit => [nom, prix, stock, quantite]
-
-    $stmtProd = $pdo->prepare('SELECT id_produit, nom, prix, stock, actif FROM produits WHERE id_produit = :id FOR UPDATE');
-    foreach ($normalized as $idProduit => $quantite) {
-        $stmtProd->execute([':id' => $idProduit]);
-        $p = $stmtProd->fetch();
-        if (!$p || (int)$p['actif'] !== 1) {
-            throw new UserFacingException('Produit introuvable');
-        }
-        $stock = (int)$p['stock'];
-        if ($stock < $quantite) {
-            throw new UserFacingException('Stock insuffisant: ' . (string)$p['nom']);
-        }
-        $prix = money_to_millimes($p['prix']);
-        $total += $prix * $quantite;
-        $productDetails[$idProduit] = [
-            'nom' => (string)$p['nom'],
-            'prix' => $prix,
-            'stock' => $stock,
-            'quantite' => $quantite,
-        ];
-    }
-
-    if ($total <= 0) {
-        throw new UserFacingException('Montant invalide');
-    }
-
-    if ($soldeAvant < $total) {
-        throw new UserFacingException('Solde insuffisant');
-    }
-
-    $soldeApres = $soldeAvant - $total;
-    $reference = generate_reference();
-
-    // Insert transfer
-    $stmtTr = $pdo->prepare(
-        'INSERT INTO transferts (id_compte, id_terminal, montant, type, statut, description, reference, solde_avant, solde_apres)
-         VALUES (:id_compte, NULL, :montant, :type, :statut, :description, :reference, :solde_avant, :solde_apres)'
-    );
-    $stmtTr->execute([
-        ':id_compte' => $idCompte,
-        ':montant' => millimes_to_db($total),
-        ':type' => 'PAIEMENT_BUVETTE',
-        ':statut' => 'REUSSI',
-        ':description' => 'Achat buvette (web scan)',
-        ':reference' => $reference,
-        ':solde_avant' => millimes_to_db($soldeAvant),
-        ':solde_apres' => millimes_to_db($soldeApres),
-    ]);
-
-    $idTransfert = (int)$pdo->lastInsertId();
-
-    // Insert details + update stock
-    $stmtDet = $pdo->prepare(
-        'INSERT INTO detail_transfert_buvette (id_transfert, id_produit, quantite, prix_unitaire)
-         VALUES (:id_transfert, :id_produit, :quantite, :prix_unitaire)'
-    );
-    $stmtUpdStock = $pdo->prepare('UPDATE produits SET stock = stock - :qte WHERE id_produit = :id');
-
-    foreach ($productDetails as $idProduit => $d) {
-        $stmtDet->execute([
-            ':id_transfert' => $idTransfert,
-            ':id_produit' => (int)$idProduit,
-            ':quantite' => (int)$d['quantite'],
-            ':prix_unitaire' => millimes_to_db($d['prix']),
-        ]);
-        $stmtUpdStock->execute([':qte' => (int)$d['quantite'], ':id' => (int)$idProduit]);
-    }
-
-    // Update account balance (SQL guard: never below zero)
-    if (!account_debit($pdo, $idCompte, $total)) {
-        throw new UserFacingException('Solde insuffisant');
+    $response = [
+        'ok' => true,
+        'reference' => $charge['reference'],
+        'montant' => millimes_to_dt($charge['montant']),
+        'solde_avant' => millimes_to_dt($charge['solde_avant']),
+        'solde_apres' => millimes_to_dt($charge['solde_apres']),
+    ];
+    if ($requestId !== '') {
+        payment_request_save($pdo, $scope, $requestId, $charge['id_transfert'], $response);
     }
 
     $pdo->commit();
 
-    log_security($etudiantId, 'etudiant', 'PAIEMENT_BUVETTE', 'Paiement buvette réussi ref=' . $reference . ' montant=' . millimes_to_db($total), 'SUCCES');
+    log_security($etudiantId, 'etudiant', 'PAIEMENT_BUVETTE', 'Paiement buvette réussi ref=' . $charge['reference'] . ' montant=' . millimes_to_db($charge['montant']), 'SUCCES');
 
-    echo json_encode([
-        'ok' => true,
-        'reference' => $reference,
-        'montant' => millimes_to_dt($total),
-        'solde_avant' => millimes_to_dt($soldeAvant),
-        'solde_apres' => millimes_to_dt($soldeApres),
-    ]);
+    echo json_encode($response);
 } catch (Throwable $e) {
     if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
         $pdo->rollBack();

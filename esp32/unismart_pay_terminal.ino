@@ -130,6 +130,103 @@ void addTerminalAuth(HTTPClient& http) {
     http.addHeader("X-Terminal-Token", TERMINAL_TOKEN);
 }
 
+// ============================================
+// NO DOUBLE CHARGE ON RETRY (request_id)
+// ============================================
+// Each payment carries a random request_id. If the answer is lost (Wi-Fi drop,
+// timeout), the terminal resends with the SAME id, and the server answers with
+// the result of the first request instead of charging again.
+//
+// When every resend fails, the id is kept as "pending": if the same card is
+// tapped again within PENDING_PAYMENT_TTL_MS, that tap reuses the id (and the
+// same cafe order), so a payment that did go through is not charged twice.
+const int PAYMENT_HTTP_ATTEMPTS = 3;                  // first send + 2 resends
+const unsigned long PENDING_PAYMENT_TTL_MS = 120000;  // 2 minutes
+
+struct PendingPayment {
+    bool active = false;
+    String uid;
+    String requestId;
+    int orderId = 0;          // 0 = RESTO ticket, >0 = cafe order
+    float amount = 0;         // cafe order amount, for the logs
+    unsigned long sinceMs = 0;
+};
+PendingPayment g_pending;
+
+String newRequestId() {
+    char buf[33];
+    for (int i = 0; i < 4; i++) {
+        snprintf(buf + i * 8, 9, "%08x", (unsigned int)esp_random());
+    }
+    return String(buf);
+}
+
+// Request id for a payment by this card: the pending one when the previous
+// attempt for this card (and order) got no answer, otherwise a new one.
+String requestIdFor(const String& cardUID, int orderId) {
+    if (g_pending.active && g_pending.uid == cardUID && g_pending.orderId == orderId
+        && millis() - g_pending.sinceMs < PENDING_PAYMENT_TTL_MS) {
+        logMessage("INFO", "Reprise du paiement précédent (request_id=" + g_pending.requestId + ")");
+        return g_pending.requestId;
+    }
+    g_pending.active = true;
+    g_pending.uid = cardUID;
+    g_pending.requestId = newRequestId();
+    g_pending.orderId = orderId;
+    g_pending.sinceMs = millis();
+    return g_pending.requestId;
+}
+
+// The cafe order still waiting for an answer for this card, or 0.
+int pendingOrderFor(const String& cardUID) {
+    if (g_pending.active && g_pending.uid == cardUID && g_pending.orderId > 0
+        && millis() - g_pending.sinceMs < PENDING_PAYMENT_TTL_MS) {
+        return g_pending.orderId;
+    }
+    return 0;
+}
+
+// POSTs a payment, resending the same body on network errors.
+// Returns the HTTP status (negative = no answer after all attempts) and fills body.
+int postPayment(const String& url, const String& payload, String& body) {
+    int code = -1;
+    for (int attempt = 1; attempt <= PAYMENT_HTTP_ATTEMPTS; attempt++) {
+        if (WiFi.status() != WL_CONNECTED) {
+            connectWiFi();
+        }
+        HTTPClient http;
+        http.setTimeout(15000);
+        http.begin(wifiClient, url);
+        http.addHeader("Content-Type", "application/json");
+        addTerminalAuth(http);
+        code = http.POST(payload);
+        if (code >= 0) {
+            body = http.getString();
+            http.end();
+            return code;
+        }
+        logMessage("ERROR", String("HTTP error (essai ") + attempt + "/" + PAYMENT_HTTP_ATTEMPTS + "): " + http.errorToString(code));
+        http.end();
+        if (attempt < PAYMENT_HTTP_ATTEMPTS) {
+            delay(1000 * attempt);
+        }
+    }
+    return code;
+}
+
+// Called when the server answered (accepted or refused): the payment is settled.
+void clearPendingPayment() {
+    g_pending.active = false;
+}
+
+// Called when no answer came back: let the same card be tapped again right
+// away. That tap reuses the pending request_id, so it cannot charge twice.
+void allowRetap() {
+    g_lastProcessedMs = 0;
+    g_lastProcessedUid = "";
+    logMessage("INFO", "Pas de réponse du serveur. Repassez la même carte pour réessayer.");
+}
+
 bool sendLogToServer(int terminalId, const String& type, const String& message, const String& uidCard = "", float amount = -1, int orderId = 0) {
     if (WiFi.status() != WL_CONNECTED) return false;
 
@@ -286,12 +383,10 @@ bool payRestoTicket(const String& cardUID) {
     const int terminalId = TERMINAL_ID;
     const float amount = AMOUNT_RESTO;
 
-    HTTPClient http;
-
     DynamicJsonDocument doc(256);
     doc["card_uid"] = cardUID;
-    doc["amount"] = amount;
     doc["terminal_id"] = terminalId;
+    doc["request_id"] = requestIdFor(cardUID, 0);
 
     String jsonPayload;
     serializeJson(doc, jsonPayload);
@@ -301,37 +396,35 @@ bool payRestoTicket(const String& cardUID) {
     sendLogToServer(terminalId, "RESTO", String("Prix ticket : ") + String(amount, 2) + " DT", "", amount);
     sendLogToServer(terminalId, "PAIEMENT", "Envoi au serveur...", cardUID, amount);
 
-    http.setTimeout(15000);
-    http.begin(wifiClient, SERVER_URL);
-    http.addHeader("Content-Type", "application/json");
-    addTerminalAuth(http);
-
-    int httpCode = http.POST(jsonPayload);
+    String response;
+    int httpCode = postPayment(SERVER_URL, jsonPayload, response);
 
     logMessage("RESPONSE", String("HTTP status: ") + httpCode);
 
     if (httpCode < 0) {
-        logMessage("ERROR", String("HTTP error: ") + http.errorToString(httpCode));
         logMessage("INFO", "Hint: vérifie SERVER_URL (IP du PC + /UniSmartPay/...), Apache ON, firewall port 80.");
-        sendLogToServer(terminalId, "ERROR", String("HTTP error: ") + http.errorToString(httpCode), cardUID, amount);
+        sendLogToServer(terminalId, "ERROR", "Paiement sans réponse du serveur", cardUID, amount);
+        allowRetap();
         failedPayment();
-        http.end();
         return false;
     }
 
-    String response = http.getString();
     logMessage("RESPONSE", String("Body: ") + response);
 
     DynamicJsonDocument responseDoc(1024);
     DeserializationError jerr = deserializeJson(responseDoc, response);
 
     if (jerr) {
+        // Garbled answer: the payment may have gone through, so keep the
+        // request_id pending and let the card retry with it.
         logMessage("ERROR", String("JSON parse error: ") + jerr.c_str());
         sendLogToServer(terminalId, "ERROR", String("JSON parse error: ") + jerr.c_str(), cardUID, amount);
+        allowRetap();
         failedPayment();
-        http.end();
         return false;
     }
+
+    clearPendingPayment();
 
     bool success = responseDoc["success"] | false;
     const char* errorMsg = responseDoc["error"] | "";
@@ -357,7 +450,6 @@ bool payRestoTicket(const String& cardUID) {
         sendLogToServer(terminalId, "SUCCESS", String("Paiement OK ref=") + reference, cardUID, amount);
         if (soldeApres >= 0) sendLogToServer(terminalId, "SOLDE", String("Nouveau solde : ") + String(soldeApres, 2) + " DT", cardUID, amount);
         successPayment();
-        http.end();
         return true;
     }
 
@@ -367,7 +459,6 @@ bool payRestoTicket(const String& cardUID) {
         sendLogToServer(terminalId, "ERROR", String("Paiement KO: ") + errorMsg, cardUID, amount);
     }
     failedPayment();
-    http.end();
     return false;
 }
 
@@ -497,6 +588,83 @@ void loop() {
 }
 
 // ============================================
+// CAFE: CLAIM THE NEXT WAITING ORDER
+// ============================================
+// Returns the order id (and its amount), or 0 when there is none or on error.
+int claimOrder(int terminalId, const String& cardUID, float& amount) {
+    String claimUrl = apiUrlFromServerUrl(SERVER_URL, "terminal_order_claim.php");
+    claimUrl += "?terminal_id=" + String(terminalId);
+
+    logMessage("PAIEMENT", "Recherche commande en attente...");
+    sendLogToServer(terminalId, "PAIEMENT", "Recherche commande en attente...");
+
+    HTTPClient httpClaim;
+    httpClaim.setTimeout(15000);
+    httpClaim.begin(wifiClient, claimUrl);
+    addTerminalAuth(httpClaim);
+    int claimCode = httpClaim.GET();
+    logMessage("RESPONSE", String("HTTP claim status: ") + claimCode);
+
+    if (claimCode < 0) {
+        logMessage("ERROR", String("HTTP claim error: ") + httpClaim.errorToString(claimCode));
+        sendLogToServer(terminalId, "ERROR", String("Claim error: ") + httpClaim.errorToString(claimCode));
+        failedPayment();
+        httpClaim.end();
+        return 0;
+    }
+
+    String claimBody = httpClaim.getString();
+    logMessage("RESPONSE", String("Claim body: ") + claimBody);
+    httpClaim.end();
+
+    DynamicJsonDocument claimDoc(2048);
+    DeserializationError claimErr = deserializeJson(claimDoc, claimBody);
+    if (claimErr) {
+        logMessage("ERROR", String("JSON parse error (claim): ") + claimErr.c_str());
+        sendLogToServer(terminalId, "ERROR", String("Claim JSON parse error: ") + claimErr.c_str());
+        failedPayment();
+        return 0;
+    }
+
+    bool ok = claimDoc["ok"] | false;
+    bool found = claimDoc["found"] | false;
+    const char* errMsg = claimDoc["error"] | "";
+
+    if (!ok) {
+        logMessage("ERROR", "Claim failed!");
+        if (errMsg[0] != '\0') {
+            logMessage("ERROR", String("Error: ") + errMsg);
+            sendLogToServer(terminalId, "ERROR", String("Claim failed: ") + errMsg);
+        }
+        failedPayment();
+        return 0;
+    }
+
+    if (!found) {
+        logMessage("WARNING", "Panier vide / aucune commande web en attente.");
+        sendLogToServer(terminalId, "WARNING", "Panier vide / aucune commande web en attente.");
+        // Not a payment failure: keep LEDs off.
+        allLedsOff();
+        return 0;
+    }
+
+    int orderId = claimDoc["order"]["order_id"] | 0;
+    amount = claimDoc["order"]["montant"] | 0;
+
+    if (orderId <= 0 || amount <= 0) {
+        Serial.println("Invalid order data.");
+        logMessage("ERROR", "Commande invalide.");
+        sendLogToServer(terminalId, "ERROR", "Commande invalide.", cardUID);
+        failedPayment();
+        return 0;
+    }
+
+    logMessage("PAIEMENT", String("Commande détectée : #") + orderId + " montant=" + String(amount, 2) + " DT");
+    sendLogToServer(terminalId, "PAIEMENT", String("Commande détectée : #") + orderId + " montant=" + String(amount, 2) + " DT", "", amount, orderId);
+    return orderId;
+}
+
+// ============================================
 // PROCESS PAYMENT
 // ============================================
 void processPayment(String cardUID) {
@@ -548,83 +716,29 @@ void processPayment(String cardUID) {
     }
 
     if (g_mode == MODE_BUVETTE) {
-        // 1) Claim pending order for this terminal
-        String claimUrl = apiUrlFromServerUrl(SERVER_URL, "terminal_order_claim.php");
-        claimUrl += "?terminal_id=" + String(terminalId);
+        int orderId = pendingOrderFor(cardUID);
+        float amount = g_pending.amount;
 
-        logMessage("PAIEMENT", "Recherche commande en attente...");
-        sendLogToServer(terminalId, "PAIEMENT", "Recherche commande en attente...");
-
-        HTTPClient httpClaim;
-        httpClaim.setTimeout(15000);
-        httpClaim.begin(wifiClient, claimUrl);
-        addTerminalAuth(httpClaim);
-        int claimCode = httpClaim.GET();
-        logMessage("RESPONSE", String("HTTP claim status: ") + claimCode);
-
-        if (claimCode < 0) {
-            logMessage("ERROR", String("HTTP claim error: ") + httpClaim.errorToString(claimCode));
-            sendLogToServer(terminalId, "ERROR", String("Claim error: ") + httpClaim.errorToString(claimCode));
-            failedPayment();
-            httpClaim.end();
-            return;
-        }
-
-        String claimBody = httpClaim.getString();
-        logMessage("RESPONSE", String("Claim body: ") + claimBody);
-        httpClaim.end();
-
-        DynamicJsonDocument claimDoc(2048);
-        DeserializationError claimErr = deserializeJson(claimDoc, claimBody);
-        if (claimErr) {
-            logMessage("ERROR", String("JSON parse error (claim): ") + claimErr.c_str());
-            sendLogToServer(terminalId, "ERROR", String("Claim JSON parse error: ") + claimErr.c_str());
-            failedPayment();
-            return;
-        }
-
-        bool ok = claimDoc["ok"] | false;
-        bool found = claimDoc["found"] | false;
-        const char* errMsg = claimDoc["error"] | "";
-
-        if (!ok) {
-            logMessage("ERROR", "Claim failed!");
-            if (errMsg[0] != '\0') {
-                logMessage("ERROR", String("Error: ") + errMsg);
-                sendLogToServer(terminalId, "ERROR", String("Claim failed: ") + errMsg);
+        if (orderId > 0) {
+            // 1) Same card, previous payment got no answer: retry that order
+            //    with the same request_id instead of claiming a new one. The
+            //    balance check is skipped: the order may already be paid.
+            logMessage("PAIEMENT", String("Reprise de la commande #") + orderId);
+            sendLogToServer(terminalId, "PAIEMENT", String("Reprise de la commande #") + orderId, cardUID, amount, orderId);
+        } else {
+            // 1) Claim the waiting order for this terminal
+            orderId = claimOrder(terminalId, cardUID, amount);
+            if (orderId <= 0) {
+                return;
             }
-            failedPayment();
-            return;
-        }
 
-        if (!found) {
-            logMessage("WARNING", "Panier vide / aucune commande web en attente.");
-            sendLogToServer(terminalId, "WARNING", "Panier vide / aucune commande web en attente.");
-            // Not a payment failure: keep LEDs off.
-            allLedsOff();
-            return;
-        }
-
-        int orderId = claimDoc["order"]["order_id"] | 0;
-        float amount = claimDoc["order"]["montant"] | 0;
-
-        if (orderId <= 0 || amount <= 0) {
-            Serial.println("Invalid order data.");
-            logMessage("ERROR", "Commande invalide.");
-            sendLogToServer(terminalId, "ERROR", "Commande invalide.", cardUID);
-            failedPayment();
-            return;
-        }
-
-        logMessage("PAIEMENT", String("Commande détectée : #") + orderId + " montant=" + String(amount, 2) + " DT");
-        sendLogToServer(terminalId, "PAIEMENT", String("Commande détectée : #") + orderId + " montant=" + String(amount, 2) + " DT", "", amount, orderId);
-
-        // 1bis) Check balance >= amount BEFORE charging
-        if (check.solde >= 0 && check.solde < amount) {
-            logMessage("ERROR", "Solde insuffisant");
-            sendLogToServer(terminalId, "ERROR", "Solde insuffisant", cardUID, amount, orderId);
-            failedPayment();
-            return;
+            // 1bis) Check balance >= amount BEFORE charging
+            if (check.solde >= 0 && check.solde < amount) {
+                logMessage("ERROR", "Solde insuffisant");
+                sendLogToServer(terminalId, "ERROR", "Solde insuffisant", cardUID, amount, orderId);
+                failedPayment();
+                return;
+            }
         }
 
         // 2) Pay that order with card UID
@@ -634,6 +748,8 @@ void processPayment(String cardUID) {
         doc["order_id"] = orderId;
         doc["terminal_id"] = terminalId;
         doc["card_uid"] = cardUID;
+        doc["request_id"] = requestIdFor(cardUID, orderId);
+        g_pending.amount = amount;
 
         String jsonPayload;
         serializeJson(doc, jsonPayload);
@@ -641,37 +757,33 @@ void processPayment(String cardUID) {
         logMessage("PAIEMENT", "Envoi au serveur...");
         sendLogToServer(terminalId, "PAIEMENT", "Envoi au serveur...", cardUID, amount, orderId);
 
-        HTTPClient httpPay;
-        httpPay.setTimeout(15000);
-        httpPay.begin(wifiClient, payUrl);
-        httpPay.addHeader("Content-Type", "application/json");
-        addTerminalAuth(httpPay);
-
-        int httpCode = httpPay.POST(jsonPayload);
+        String response;
+        int httpCode = postPayment(payUrl, jsonPayload, response);
         logMessage("RESPONSE", String("HTTP pay status: ") + httpCode);
 
         if (httpCode < 0) {
-            logMessage("ERROR", String("HTTP pay error: ") + httpPay.errorToString(httpCode));
             logMessage("INFO", "Hint: vérifie SERVER_URL (IP du PC + /UniSmartPay/...), Apache ON, firewall port 80.");
-            sendLogToServer(terminalId, "ERROR", String("Pay HTTP error: ") + httpPay.errorToString(httpCode), cardUID, amount, orderId);
+            sendLogToServer(terminalId, "ERROR", "Paiement sans réponse du serveur", cardUID, amount, orderId);
+            allowRetap();
             failedPayment();
-            httpPay.end();
             return;
         }
 
-        String response = httpPay.getString();
         logMessage("RESPONSE", String("Body: ") + response);
 
         DynamicJsonDocument responseDoc(2048);
         DeserializationError jerr = deserializeJson(responseDoc, response);
 
         if (jerr) {
+            // Garbled answer: the order may be paid, so keep the request_id pending.
             logMessage("ERROR", String("JSON parse error (pay): ") + jerr.c_str());
             sendLogToServer(terminalId, "ERROR", String("Pay JSON parse error: ") + jerr.c_str(), cardUID, amount, orderId);
+            allowRetap();
             failedPayment();
-            httpPay.end();
             return;
         }
+
+        clearPendingPayment();
 
         bool success = responseDoc["success"] | false;
         const char* errorMsg = responseDoc["error"] | "";
@@ -705,13 +817,14 @@ void processPayment(String cardUID) {
             }
             failedPayment();
         }
-
-        httpPay.end();
         return;
     }
 
-    // RESTO mode: ticket fixe (check balance before paying)
-    if (check.solde >= 0 && check.solde < AMOUNT_RESTO) {
+    // RESTO mode: ticket fixe (check balance before paying). Skipped when
+    // retrying a ticket that got no answer: it may already be paid.
+    const bool restoRetry = g_pending.active && g_pending.uid == cardUID && g_pending.orderId == 0
+        && millis() - g_pending.sinceMs < PENDING_PAYMENT_TTL_MS;
+    if (!restoRetry && check.solde >= 0 && check.solde < AMOUNT_RESTO) {
         logMessage("ERROR", "Solde insuffisant");
         sendLogToServer(terminalId, "ERROR", "Solde insuffisant", cardUID, AMOUNT_RESTO);
         failedPayment();

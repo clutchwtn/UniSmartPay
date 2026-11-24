@@ -1,12 +1,15 @@
 <?php
 // Restaurant ticket payment from a RESTO terminal (ESP32).
-// Expected JSON: {"card_uid":"...","terminal_id":1}
+// Expected JSON: {"card_uid":"...","terminal_id":1,"request_id":"..."}
 // The price always comes from config_resto. An "amount" sent by the terminal
 // is ignored, so a terminal (or a stolen token) cannot choose what to charge.
+// request_id (optional, 8-64 chars of [A-Za-z0-9_-]): a repeat of an id that
+// already succeeded returns the first response with "replayed": true and
+// charges nothing.
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/payment.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -36,6 +39,8 @@ if ($uid === '' || $terminalId <= 0 || $token === '') {
 }
 
 try {
+    $requestId = payment_request_id($payload['request_id'] ?? null);
+
     $pdo = db();
     $pdo->beginTransaction();
 
@@ -44,129 +49,58 @@ try {
     if ((string)$terminal['type'] !== 'RESTO') {
         throw new UserFacingException('Terminal non configuré pour le resto');
     }
+
+    $scope = 'terminal:' . $terminalId;
+    if ($requestId !== '' && ($replay = payment_request_claim($pdo, $scope, $requestId)) !== null) {
+        $pdo->rollBack();
+        echo json_encode($replay);
+        exit();
+    }
+
     $amount = resto_ticket_price($pdo);
     if ($amount <= 0) {
         throw new UserFacingException('Configuration resto indisponible');
     }
 
-    // Find card/account
-    $cands = uid_candidates($uid);
-    $in = implode(',', array_fill(0, count($cands), '?'));
+    $account = payment_lock_account_by_card($pdo, $uid);
+    $charge = payment_charge($pdo, $account, 'PAIEMENT_RESTO', $amount, [], [], $terminalId, 'Ticket resto (terminal)');
 
-    $stmt = $pdo->prepare(
-        "SELECT ca.id_etudiant, ca.statut AS carte_statut, c.id_compte, c.solde, e.nom, e.prenom
-         FROM cartes ca
-         JOIN comptes c ON c.id_etudiant = ca.id_etudiant
-         JOIN etudiants e ON e.id_etudiant = ca.id_etudiant
-         WHERE ca.uid_rfid IN ($in)
-         FOR UPDATE"
-    );
-    $stmt->execute($cands);
-    $row = $stmt->fetch();
-
-    if (!$row) {
-        throw new UserFacingException('Carte introuvable');
-    }
-    if ((string)$row['carte_statut'] !== 'active') {
-        throw new UserFacingException('Carte non active');
+    $response = [
+        'success' => true,
+        'reference' => $charge['reference'],
+        'montant' => millimes_to_dt($charge['montant']),
+        'solde_apres' => millimes_to_dt($charge['solde_apres']),
+        'etudiant' => [
+            'id_etudiant' => (int)$account['id_etudiant'],
+            'nom' => (string)($account['nom'] ?? ''),
+            'prenom' => (string)($account['prenom'] ?? ''),
+        ],
+    ];
+    if ($requestId !== '') {
+        payment_request_save($pdo, $scope, $requestId, $charge['id_transfert'], $response);
     }
 
-    $etudiantNom = trim((string)($row['prenom'] ?? '') . ' ' . (string)($row['nom'] ?? ''));
-
-    $soldeAvant = money_to_millimes($row['solde']);
-    if ($soldeAvant < $amount) {
-        throw new UserFacingException('Solde insuffisant');
-    }
-
-    $type = 'PAIEMENT_RESTO';
-    $soldeApres = $soldeAvant - $amount;
-    $reference = generate_reference();
-
-    $stmtTr = $pdo->prepare(
-        'INSERT INTO transferts (id_compte, id_terminal, montant, type, statut, description, reference, solde_avant, solde_apres)
-         VALUES (:id_compte, :id_terminal, :montant, :type, :statut, :description, :reference, :solde_avant, :solde_apres)'
-    );
-    $stmtTr->execute([
-        ':id_compte' => (int)$row['id_compte'],
-        ':id_terminal' => $terminalId,
-        ':montant' => millimes_to_db($amount),
-        ':type' => $type,
-        ':statut' => 'REUSSI',
-        ':description' => 'Ticket resto (terminal)',
-        ':reference' => $reference,
-        ':solde_avant' => millimes_to_db($soldeAvant),
-        ':solde_apres' => millimes_to_db($soldeApres),
-    ]);
-
-    if (!account_debit($pdo, (int)$row['id_compte'], $amount)) {
-        throw new UserFacingException('Solde insuffisant');
-    }
-
-    // Device log
-    $pdo->prepare('INSERT INTO code_appareil (id_terminal, type_message, message, uid_carte) VALUES (:id_terminal, :type, :msg, :uid)')
-        ->execute([
-            ':id_terminal' => $terminalId,
-            ':type' => 'PAIEMENT',
-            ':msg' => 'Paiement OK ref=' . $reference,
-            ':uid' => $uid,
-        ]);
-
-    // Extra logs for Serial Monitor UI
-    if ($etudiantNom !== '') {
-        $pdo->prepare('INSERT INTO code_appareil (id_terminal, type_message, message, uid_carte) VALUES (:id_terminal, :type, :msg, :uid)')
-            ->execute([
-                ':id_terminal' => $terminalId,
-                ':type' => 'USER',
-                ':msg' => 'Étudiant : ' . $etudiantNom,
-                ':uid' => $uid,
-            ]);
-    }
-    $pdo->prepare('INSERT INTO code_appareil (id_terminal, type_message, message, donnees_json, uid_carte) VALUES (:id_terminal, :type, :msg, :json, :uid)')
-        ->execute([
-            ':id_terminal' => $terminalId,
-            ':type' => 'SOLDE',
-            ':msg' => 'Nouveau solde : ' . millimes_to_db($soldeApres) . ' DT',
-            ':json' => json_encode(['solde_apres' => millimes_to_dt($soldeApres)], JSON_UNESCAPED_UNICODE),
-            ':uid' => $uid,
-        ]);
+    terminal_log_payment_ok($pdo, $terminalId, $uid, $account, $charge);
 
     $pdo->commit();
-
-    echo json_encode([
-        'success' => true,
-        'reference' => $reference,
-        'montant' => millimes_to_dt($amount),
-        'solde_apres' => millimes_to_dt($soldeApres),
-        'etudiant' => [
-            'id_etudiant' => (int)$row['id_etudiant'],
-            'nom' => (string)($row['nom'] ?? ''),
-            'prenom' => (string)($row['prenom'] ?? ''),
-        ],
-    ]);
+    echo json_encode($response);
 } catch (Throwable $e) {
     if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
         $pdo->rollBack();
     }
 
-    // Best-effort device log (so the web UI can show it like a Serial Monitor)
-    try {
-        if (isset($pdo) && $pdo instanceof PDO) {
-            $pdo->prepare('INSERT INTO code_appareil (id_terminal, type_message, message, donnees_json, uid_carte) VALUES (:id_terminal, :type, :msg, :json, :uid)')
-                ->execute([
-                    ':id_terminal' => $terminalId,
-                    ':type' => 'ERREUR',
-                    ':msg' => 'Paiement KO: ' . ($e instanceof UserFacingException ? $e->getMessage() : 'Erreur serveur'),
-                    ':json' => json_encode(['amount' => millimes_to_dt($amount)], JSON_UNESCAPED_UNICODE),
-                    ':uid' => $uid,
-                ]);
-        }
-    } catch (Throwable $_) {
-        // ignore logging failure
-    }
-
     $msg = $e instanceof UserFacingException ? $e->getMessage() : 'Erreur serveur';
     if (!($e instanceof UserFacingException)) {
         error_log('payment.php error: ' . $e->getMessage());
+    }
+
+    // Best-effort device log (so the web UI can show it like a Serial Monitor)
+    try {
+        if (isset($pdo) && $pdo instanceof PDO) {
+            terminal_log($pdo, $terminalId, 'ERREUR', 'Paiement KO: ' . $msg, $uid, ['amount' => millimes_to_dt($amount)]);
+        }
+    } catch (Throwable $_) {
+        // ignore logging failure
     }
 
     http_response_code(400);

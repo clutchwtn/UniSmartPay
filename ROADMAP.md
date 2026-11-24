@@ -5,9 +5,9 @@ the system handles real money.
 
 ## Before real use
 
-- **No double charge on retry.** If the Wi-Fi drops after a payment succeeds,
-  the terminal can retry and charge again. Send a unique request id with each
-  payment and ignore repeats.
+- **Require a request id from terminals.** Payments without `request_id` are
+  still accepted so terminals with older firmware keep working. Once every
+  terminal runs the new firmware, reject them.
 - **HTTPS for the terminal.** Move the firmware to `WiFiClientSecure` with a
   pinned certificate, then enable `UNISMARTPAY_FORCE_HTTPS`.
 
@@ -15,7 +15,6 @@ the system handles real money.
 
 - Recharge limits (per recharge and per day) and a way to cancel a recharge.
 - A daily spending limit per student, since card UIDs can be cloned.
-- A single shared payment function instead of four copies of the logic.
 - Run `tests/smoke_test.py` automatically on every push (GitHub Actions).
 
 ## Later

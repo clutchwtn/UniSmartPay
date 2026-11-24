@@ -3,9 +3,13 @@
 `smoke_test.py` runs against a live instance and checks two things:
 
 - **Functional:** logins, student pages, a restaurant payment, the full
-  cafeteria order flow, a recharge, and card blocking (a student blocks their
-  card, every payment path refuses it, only an admin can unblock it). Every
-  test must say `PASS`; the script exits with code 1 otherwise.
+  cafeteria order flow, student web payments, a recharge, and card blocking (a
+  student blocks their card, every payment path refuses it, only an admin can
+  unblock it). Every test must say `PASS`; the script exits with code 1
+  otherwise.
+- **Double charge (D1 to D5, in the security group):** a payment resent with
+  the same `request_id` (terminal retry, simultaneous resends, student double
+  submit) must be charged once.
 - **Security:** one check per fixed vulnerability, labelled with its fix
   number. Each should say `FIXED`; `OPEN` means a regression. These results
   only count when all functional tests pass.

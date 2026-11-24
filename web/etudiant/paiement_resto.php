@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/payment.php';
 require_student_login();
 
 $pdo = db();
@@ -17,10 +17,9 @@ $cfg = $cfgStmt->fetch();
 $prixTicket = isset($cfg['prix_ticket']) ? money_to_millimes($cfg['prix_ticket']) : 0; // millimes
 $descTicket = (string)($cfg['description'] ?? 'Ticket repas');
 
-$accStmt = $pdo->prepare('SELECT id_compte, solde FROM comptes WHERE id_etudiant = :id LIMIT 1');
+$accStmt = $pdo->prepare('SELECT solde FROM comptes WHERE id_etudiant = :id LIMIT 1');
 $accStmt->execute([':id' => $etudiantId]);
 $acc = $accStmt->fetch();
-$idCompte = (int)($acc['id_compte'] ?? 0);
 $soldeActuel = isset($acc['solde']) ? money_to_millimes($acc['solde']) : 0;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -31,57 +30,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($prixTicket <= 0) {
       throw new UserFacingException('Configuration resto indisponible.');
     }
-    if ($idCompte <= 0) {
-      throw new UserFacingException('Compte introuvable.');
-    }
 
-    $reference = generate_reference();
+    // One id per rendered form: a double submit or a browser resend pays once.
+    $requestId = payment_request_id($_POST['request_id'] ?? null);
+    $scope = 'etudiant:' . $etudiantId;
 
     $pdo->beginTransaction();
 
-    $lock = $pdo->prepare('SELECT solde FROM comptes WHERE id_compte = :id_compte FOR UPDATE');
-    $lock->execute([':id_compte' => $idCompte]);
-    $row = $lock->fetch();
-    if (!$row) {
-      throw new UserFacingException('Compte introuvable.');
-    }
-    // Same rule as the terminals: exactly one card, and it must be active
-    // (a blocked card blocks web payments too).
-    $stmtCarte = $pdo->prepare('SELECT statut FROM cartes WHERE id_etudiant = :id FOR UPDATE');
-    $stmtCarte->execute([':id' => $etudiantId]);
-    $cartes = $stmtCarte->fetchAll();
-    if (count($cartes) !== 1 || $cartes[0]['statut'] !== 'active') {
-      throw new UserFacingException('Carte non active.');
-    }
-
-    $soldeAvant = money_to_millimes($row['solde']);
-    if ($soldeAvant < $prixTicket) {
-      throw new UserFacingException('Solde insuffisant.');
+    $result = $requestId !== '' ? payment_request_claim($pdo, $scope, $requestId) : null;
+    if ($result !== null) {
+      $pdo->rollBack();
+    } else {
+      $account = payment_lock_account_by_student($pdo, $etudiantId);
+      $charge = payment_charge($pdo, $account, 'PAIEMENT_RESTO', $prixTicket, [], [], null, $descTicket);
+      $result = ['reference' => $charge['reference'], 'solde_apres' => $charge['solde_apres']];
+      if ($requestId !== '') {
+        payment_request_save($pdo, $scope, $requestId, $charge['id_transfert'], $result);
+      }
+      $pdo->commit();
+      log_security($etudiantId, 'etudiant', 'PAIEMENT_RESTO', 'Ticket resto ref=' . $charge['reference'] . ' montant=' . millimes_to_db($prixTicket), 'SUCCES');
     }
 
-    $soldeApres = $soldeAvant - $prixTicket;
-
-    if (!account_debit($pdo, $idCompte, $prixTicket)) {
-      throw new UserFacingException('Solde insuffisant.');
-    }
-
-    $pdo->prepare(
-      'INSERT INTO transferts (id_compte, id_terminal, montant, type, statut, description, reference, solde_avant, solde_apres)
-       VALUES (:id_compte, NULL, :montant, "PAIEMENT_RESTO", "REUSSI", :description, :reference, :solde_avant, :solde_apres)'
-    )->execute([
-      ':id_compte' => $idCompte,
-      ':montant' => millimes_to_db($prixTicket),
-      ':description' => $descTicket,
-      ':reference' => $reference,
-      ':solde_avant' => millimes_to_db($soldeAvant),
-      ':solde_apres' => millimes_to_db($soldeApres),
-    ]);
-
-    $pdo->commit();
-
-    $success = 'Paiement resto réussi. Référence: ' . $reference;
-    $soldeActuel = $soldeApres;
-    log_security($etudiantId, 'etudiant', 'PAIEMENT_RESTO', 'Ticket resto ref=' . $reference . ' montant=' . millimes_to_db($prixTicket), 'SUCCES');
+    $success = 'Paiement resto réussi. Référence: ' . $result['reference'];
+    $soldeActuel = (int)$result['solde_apres'];
   } catch (Throwable $e) {
     if ($pdo->inTransaction()) {
       $pdo->rollBack();
@@ -122,6 +93,7 @@ require_once __DIR__ . '/../includes/header.php';
       <div style="margin-top:12px;">
         <form method="post" action="">
           <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token()); ?>">
+          <input type="hidden" name="request_id" value="<?php echo bin2hex(random_bytes(16)); ?>">
           <button class="btn btn-primary" type="submit"><i class="fa-solid fa-receipt"></i> Payer maintenant</button>
         </form>
       </div>

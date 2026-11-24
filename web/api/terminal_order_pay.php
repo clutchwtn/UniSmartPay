@@ -1,10 +1,13 @@
 <?php
 
 // Called by ESP32 after claiming an order: pay it using card UID, update stock, and log transfer.
+// Expected JSON: {"order_id":1,"terminal_id":2,"card_uid":"...","request_id":"..."}
+// request_id (optional): a repeat of an id that already succeeded returns the
+// first response with "replayed": true and charges nothing.
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/payment.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -33,14 +36,21 @@ if ($orderId <= 0 || $terminalId <= 0 || $uid === '' || $token === '') {
     exit();
 }
 
-// Card problems (unknown/inactive card, low balance) leave the order payable by another card.
-$cardError = false;
-
 try {
+    $requestId = payment_request_id($payload['request_id'] ?? null);
+
     $pdo = db();
     $pdo->beginTransaction();
 
     $terminal = require_terminal($pdo, $token, $terminalId, true);
+
+    // A retry of a payment that already went through: answer as the first time.
+    $scope = 'terminal:' . $terminalId;
+    if ($requestId !== '' && ($replay = payment_request_claim($pdo, $scope, $requestId)) !== null) {
+        $pdo->rollBack();
+        echo json_encode($replay);
+        exit();
+    }
 
     // Lock order
     $stmtO = $pdo->prepare(
@@ -74,181 +84,58 @@ try {
     $mode = (string)$order['mode'];
     $amount = money_to_millimes($order['montant']);
 
-    // Find card/account
-    $cands = uid_candidates($uid);
-    $in = implode(',', array_fill(0, count($cands), '?'));
-
-    $stmt = $pdo->prepare(
-        "SELECT ca.id_etudiant, ca.statut AS carte_statut, c.id_compte, c.solde, e.nom, e.prenom
-         FROM cartes ca
-         JOIN comptes c ON c.id_etudiant = ca.id_etudiant
-         JOIN etudiants e ON e.id_etudiant = ca.id_etudiant
-         WHERE ca.uid_rfid IN ($in)
-         FOR UPDATE"
-    );
-    $stmt->execute($cands);
-    $acc = $stmt->fetch();
-
-    if (!$acc) {
-        $cardError = true;
-        throw new UserFacingException('Carte introuvable');
-    }
-    if ((string)$acc['carte_statut'] !== 'active') {
-        $cardError = true;
-        throw new UserFacingException('Carte non active');
-    }
-
-    $etudiantNom = trim((string)($acc['prenom'] ?? '') . ' ' . (string)($acc['nom'] ?? ''));
-
-    $soldeAvant = money_to_millimes($acc['solde']);
-    if ($soldeAvant < $amount) {
-        $cardError = true;
-        throw new UserFacingException('Solde insuffisant');
-    }
-
-    // For buvette: lock products + update stock + insert details
+    // For buvette: the basket and the unit prices frozen at order creation.
+    $items = [];
+    $prices = [];
     if ($mode === 'BUVETTE') {
-        $items = json_decode((string)($order['items_json'] ?? '[]'), true);
-        if (!is_array($items) || count($items) === 0) {
+        $rawItems = json_decode((string)($order['items_json'] ?? '[]'), true);
+        if (!is_array($rawItems) || count($rawItems) === 0) {
             throw new UserFacingException('Commande invalide (panier vide)');
         }
-
-        $normalized = [];
-        $prices = []; // unit prices frozen at order creation (absent on older orders)
-        foreach ($items as $it) {
-            if (!is_array($it)) continue;
-            $idProduit = (int)($it['id_produit'] ?? 0);
-            $quantite = (int)($it['quantite'] ?? 0);
-            if ($idProduit <= 0 || $quantite <= 0) continue;
-            $normalized[$idProduit] = ($normalized[$idProduit] ?? 0) + $quantite;
-            $prixFige = money_parse($it['prix_unitaire'] ?? null);
-            if ($prixFige !== null && $prixFige >= 0) {
-                $prices[$idProduit] = $prixFige;
-            }
-        }
-        if (count($normalized) === 0) {
+        $items = payment_normalize_items($rawItems);
+        if (count($items) === 0) {
             throw new UserFacingException('Commande invalide (articles)');
         }
-
-        $stmtProd = $pdo->prepare('SELECT id_produit, nom, prix, stock, actif FROM produits WHERE id_produit = :id FOR UPDATE');
-        foreach ($normalized as $idProduit => $quantite) {
-            $stmtProd->execute([':id' => $idProduit]);
-            $p = $stmtProd->fetch();
-            if (!$p || (int)$p['actif'] !== 1) {
-                throw new UserFacingException('Produit introuvable');
-            }
-            $stock = (int)$p['stock'];
-            if ($stock < $quantite) {
-                throw new UserFacingException('Stock insuffisant: ' . (string)$p['nom']);
+        foreach ($rawItems as $it) {
+            $prixFige = is_array($it) ? money_parse($it['prix_unitaire'] ?? null) : null;
+            if ($prixFige !== null && $prixFige >= 0) {
+                $prices[(int)$it['id_produit']] = $prixFige;
             }
         }
-
-        // Stock will be updated after transfer insert.
     }
 
-    $soldeApres = $soldeAvant - $amount;
-    $reference = generate_reference();
+    $account = payment_lock_account_by_card($pdo, $uid);
     $type = ($mode === 'RESTO') ? 'PAIEMENT_RESTO' : 'PAIEMENT_BUVETTE';
-
-    // Insert transfer
-    $stmtTr = $pdo->prepare(
-        'INSERT INTO transferts (id_compte, id_terminal, montant, type, statut, description, reference, solde_avant, solde_apres)
-         VALUES (:id_compte, :id_terminal, :montant, :type, :statut, :description, :reference, :solde_avant, :solde_apres)'
-    );
-    $stmtTr->execute([
-        ':id_compte' => (int)$acc['id_compte'],
-        ':id_terminal' => $terminalId,
-        ':montant' => millimes_to_db($amount),
-        ':type' => $type,
-        ':statut' => 'REUSSI',
-        ':description' => 'Paiement terminal (commande)',
-        ':reference' => $reference,
-        ':solde_avant' => millimes_to_db($soldeAvant),
-        ':solde_apres' => millimes_to_db($soldeApres),
-    ]);
-
-    $idTransfert = (int)$pdo->lastInsertId();
-
-    // Update account balance (SQL guard: never below zero)
-    if (!account_debit($pdo, (int)$acc['id_compte'], $amount)) {
-        throw new UserFacingException('Solde insuffisant');
-    }
-
-    if ($mode === 'BUVETTE') {
-        $stmtProd = $pdo->prepare('SELECT id_produit, prix, actif FROM produits WHERE id_produit = :id FOR UPDATE');
-        $stmtDet = $pdo->prepare(
-            'INSERT INTO detail_transfert_buvette (id_transfert, id_produit, quantite, prix_unitaire)
-             VALUES (:id_transfert, :id_produit, :quantite, :prix_unitaire)'
-        );
-        $stmtUpdStock = $pdo->prepare('UPDATE produits SET stock = stock - :qte WHERE id_produit = :id');
-
-        foreach ($normalized as $idProduit => $quantite) {
-            $stmtProd->execute([':id' => $idProduit]);
-            $p = $stmtProd->fetch();
-            if (!$p || (int)$p['actif'] !== 1) {
-                throw new UserFacingException('Produit introuvable');
-            }
-            $prix = $prices[$idProduit] ?? money_to_millimes($p['prix']);
-            $stmtDet->execute([
-                ':id_transfert' => $idTransfert,
-                ':id_produit' => (int)$idProduit,
-                ':quantite' => (int)$quantite,
-                ':prix_unitaire' => millimes_to_db($prix),
-            ]);
-            $stmtUpdStock->execute([':qte' => (int)$quantite, ':id' => (int)$idProduit]);
-        }
-    }
-
-    // Device log
-    $pdo->prepare('INSERT INTO code_appareil (id_terminal, type_message, message, uid_carte) VALUES (:id_terminal, :type, :msg, :uid)')
-        ->execute([
-            ':id_terminal' => $terminalId,
-            ':type' => 'PAIEMENT',
-            ':msg' => 'Paiement OK ref=' . $reference . ' order=' . $orderId,
-            ':uid' => $uid,
-        ]);
-
-    // Extra logs for Serial Monitor UI
-    if ($etudiantNom !== '') {
-        $pdo->prepare('INSERT INTO code_appareil (id_terminal, type_message, message, uid_carte) VALUES (:id_terminal, :type, :msg, :uid)')
-            ->execute([
-                ':id_terminal' => $terminalId,
-                ':type' => 'USER',
-                ':msg' => 'Étudiant : ' . $etudiantNom,
-                ':uid' => $uid,
-            ]);
-    }
-    $pdo->prepare('INSERT INTO code_appareil (id_terminal, type_message, message, donnees_json, uid_carte) VALUES (:id_terminal, :type, :msg, :json, :uid)')
-        ->execute([
-            ':id_terminal' => $terminalId,
-            ':type' => 'SOLDE',
-            ':msg' => 'Nouveau solde : ' . millimes_to_db($soldeApres) . ' DT',
-            ':json' => json_encode(['solde_apres' => millimes_to_dt($soldeApres)], JSON_UNESCAPED_UNICODE),
-            ':uid' => $uid,
-        ]);
+    $charge = payment_charge($pdo, $account, $type, $amount, $items, $prices, $terminalId, 'Paiement terminal (commande)');
 
     // Mark order as paid
     $pdo->prepare('UPDATE terminal_orders SET statut = "PAYE", id_transfert = :id_transfert, reference = :reference, message_erreur = NULL WHERE id_order = :id')
         ->execute([
-            ':id_transfert' => $idTransfert,
-            ':reference' => $reference,
+            ':id_transfert' => $charge['id_transfert'],
+            ':reference' => $charge['reference'],
             ':id' => $orderId,
         ]);
 
-    $pdo->commit();
-
-    echo json_encode([
+    $response = [
         'ok' => true,
         'success' => true,
         'order_id' => $orderId,
-        'reference' => $reference,
-        'solde_apres' => millimes_to_dt($soldeApres),
+        'reference' => $charge['reference'],
+        'solde_apres' => millimes_to_dt($charge['solde_apres']),
         'etudiant' => [
-            'id_etudiant' => (int)$acc['id_etudiant'],
-            'nom' => (string)($acc['nom'] ?? ''),
-            'prenom' => (string)($acc['prenom'] ?? ''),
+            'id_etudiant' => (int)$account['id_etudiant'],
+            'nom' => (string)($account['nom'] ?? ''),
+            'prenom' => (string)($account['prenom'] ?? ''),
         ],
-    ]);
+    ];
+    if ($requestId !== '') {
+        payment_request_save($pdo, $scope, $requestId, $charge['id_transfert'], $response);
+    }
+
+    terminal_log_payment_ok($pdo, $terminalId, $uid, $account, $charge, ' order=' . $orderId);
+
+    $pdo->commit();
+    echo json_encode($response);
 } catch (Throwable $e) {
     if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
         $pdo->rollBack();
@@ -256,11 +143,12 @@ try {
 
     $msg = $e instanceof UserFacingException ? $e->getMessage() : 'Erreur serveur';
 
-    // Card errors: back to PENDING so another card can be tapped. Real order
-    // problems: ECHEC. Only touch an order still being paid (never a PAYE one).
+    // Card errors (CardException: unknown/inactive card, low balance): back to
+    // PENDING so another card can be tapped. Real order problems: ECHEC. Only
+    // touch an order still being paid (never a PAYE one).
     try {
         if (isset($pdo) && $pdo instanceof PDO && isset($orderId) && $orderId > 0) {
-            $newStatut = $cardError ? 'PENDING' : 'ECHEC';
+            $newStatut = $e instanceof CardException ? 'PENDING' : 'ECHEC';
             $pdo->prepare('UPDATE terminal_orders SET statut = :statut, message_erreur = :msg WHERE id_order = :id AND statut = "IN_PROGRESS"')
                 ->execute([':statut' => $newStatut, ':msg' => $msg, ':id' => $orderId]);
         }
@@ -270,14 +158,8 @@ try {
     // Device log (best-effort)
     try {
         if (isset($pdo) && $pdo instanceof PDO) {
-            $pdo->prepare('INSERT INTO code_appareil (id_terminal, type_message, message, donnees_json, uid_carte) VALUES (:id_terminal, :type, :msg, :json, :uid)')
-                ->execute([
-                    ':id_terminal' => $terminalId,
-                    ':type' => 'ERREUR',
-                    ':msg' => 'Commande ' . $orderId . ' KO: ' . $msg,
-                    ':json' => json_encode(['order_id' => $orderId, 'mode' => ($mode ?? null)], JSON_UNESCAPED_UNICODE),
-                    ':uid' => $uid,
-                ]);
+            terminal_log($pdo, $terminalId, 'ERREUR', 'Commande ' . $orderId . ' KO: ' . $msg, $uid,
+                ['order_id' => $orderId, 'mode' => ($mode ?? null)]);
         }
     } catch (Throwable $_) {
     }

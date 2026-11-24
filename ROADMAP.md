@@ -15,7 +15,6 @@ the system handles real money.
 
 - Recharge limits (per recharge and per day) and a way to cancel a recharge.
 - A daily spending limit per student, since card UIDs can be cloned.
-- Run `tests/smoke_test.py` automatically on every push (GitHub Actions).
 
 ## Later
 

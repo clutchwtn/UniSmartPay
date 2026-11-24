@@ -53,7 +53,17 @@ require_once __DIR__ . '/../includes/header.php';
   const csrfToken = <?php echo json_encode(csrf_token(), JSON_UNESCAPED_SLASHES); ?>;
   const cart = new Map(); // id_produit -> {id_produit, nom, prix, quantite}
 
+  // One request id per basket: resending the same basket (double click,
+  // network retry) is charged once. A new id is made whenever the basket changes.
+  let requestId = null;
+  function newRequestId() {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  }
+
   function renderCart() {
+    requestId = null;
     const el = document.getElementById('cart');
     if (cart.size === 0) {
       el.innerHTML = '<div style="color:var(--muted);">Aucun produit scanné.</div>';
@@ -126,12 +136,13 @@ require_once __DIR__ . '/../includes/header.php';
     const items = Array.from(cart.values()).map(i => ({ id_produit: i.id_produit, quantite: i.quantite }));
 
     payStatus.innerHTML = '<div class="alert">Paiement en cours…</div>';
+    requestId = requestId || newRequestId();
 
     const res = await fetch('<?php echo htmlspecialchars(BASE_URL); ?>/api/buvette_checkout.php', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      body: JSON.stringify({ csrf_token: csrfToken, items })
+      body: JSON.stringify({ csrf_token: csrfToken, items, request_id: requestId })
     });
 
     const data = await res.json();

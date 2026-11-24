@@ -1,0 +1,30 @@
+name: Smoke test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Starts the Docker setup, creates an admin and two terminals, runs
+      # tests/smoke_test.py (with --lockout) and tears everything down.
+      # Fails on any functional FAIL or security OPEN.
+      - name: Run smoke test against Docker
+        run: bash tests/ci.sh

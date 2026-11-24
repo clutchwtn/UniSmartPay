@@ -41,6 +41,17 @@ Other settings (with defaults): `APP_ROOT` (`http://localhost:8080/UniSmartPay`)
 The card-blocking test and the security check for card-less payments each add
 a throwaway student on each run. Reset the database with `docker compose down -v` when needed.
 
+## Continuous integration
+
+`.github/workflows/smoke-test.yml` runs `tests/ci.sh` on every push and pull
+request. The script starts a throwaway copy of the Docker setup on port 8090,
+creates an admin and the two terminals, runs the full test with `--lockout`,
+then removes the containers and their data. The run fails if any functional
+test fails or any security check says `OPEN`.
+
+You can run the same thing locally with `bash tests/ci.sh` (Docker and
+Python 3 needed).
+
 ## Testing on a separate copy
 
 To avoid touching your own data, run a second instance on another port:
